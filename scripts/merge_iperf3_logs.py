@@ -115,8 +115,8 @@ def align_intervals(sender_intervals: List[Dict], receiver_intervals: List[Dict]
     """
     aligned = []
     
-    # Build a time-indexed map of receiver intervals
-    recv_by_time = {}
+    # Build list of receiver intervals with time
+    recv_list = []
     for interval in receiver_intervals:
         if 'sum' in interval:
             end_time = interval['sum'].get('end', 0)
@@ -124,9 +124,10 @@ def align_intervals(sender_intervals: List[Dict], receiver_intervals: List[Dict]
             end_time = interval['streams'][0].get('end', 0)
         else:
             continue
-        # Round to 0.1s precision for matching
-        key = round(end_time, 1)
-        recv_by_time[key] = interval
+        recv_list.append((end_time, interval))
+    
+    # Sort by time
+    recv_list.sort(key=lambda x: x[0])
     
     # Match sender intervals to receiver intervals
     for sender_int in sender_intervals:
@@ -137,11 +138,21 @@ def align_intervals(sender_intervals: List[Dict], receiver_intervals: List[Dict]
         else:
             continue
         
-        key = round(end_time, 1)
-        recv_int = recv_by_time.get(key)
+        # Find closest receiver interval
+        best_match = None
+        min_diff = float('inf')
         
-        if recv_int:
-            aligned.append((sender_int, recv_int))
+        # Simple linear search (efficient enough for typical log sizes)
+        for r_time, r_int in recv_list:
+            diff = abs(r_time - end_time)
+            if diff < min_diff:
+                min_diff = diff
+                best_match = r_int
+        
+        # Use a tolerance threshold (e.g., 0.2s) to accept the match
+        # This handles jitter while avoiding matching completely different intervals
+        if best_match and min_diff < 0.2:
+            aligned.append((sender_int, best_match))
         else:
             # No matching receiver interval, use sender data only
             aligned.append((sender_int, sender_int))
