@@ -53,19 +53,61 @@ echo 'Press Ctrl+C to stop all servers.'
 cleanup() {
   echo ''
   echo 'Stopping all iperf3 servers...'
-  for port in $(seq 5201 5250); do
-    pkill -f "iperf3 -s.*-p $port" 2>/dev/null || true
-  done
-  # Also kill by PID
+  
+  # Send SIGTERM first for graceful shutdown
   for pid in "${IPERF_PIDS[@]}"; do
-    kill $pid 2>/dev/null || true
+    kill -TERM $pid 2>/dev/null || true
   done
+  
+  # Wait a moment for graceful shutdown
+  sleep 1
+  
+  # Force kill any remaining processes
+  for pid in "${IPERF_PIDS[@]}"; do
+    kill -9 $pid 2>/dev/null || true
+  done
+  
+  # Also cleanup by port pattern
+  pkill -9 -f "iperf3 -s.*-p 52" 2>/dev/null || true
+  
+  # Clean up trailing invalid JSON fragments from log files
+  # When iperf3 server is interrupted, it appends an error JSON fragment to the log
+  # We need to find and remove these trailing fragments
+  echo 'Cleaning up log files...'
+  for logfile in "$LOG_DIR"/*.json; do
+    if [ -f "$logfile" ]; then
+      # Check if file has trailing interrupt error
+      if grep -q '"error".*interrupt.*server has terminated' "$logfile" 2>/dev/null; then
+        # Use Python to clean up the trailing invalid JSON fragment
+        python3 -c '
+import sys
+filepath = sys.argv[1]
+with open(filepath, "r") as f:
+    content = f.read()
+# Find the start of the trailing invalid fragment
+# It looks like: {"start":{"connected":[],... with empty connected array
+# The valid JSON ends with } before this fragment starts
+marker = chr(123) + chr(10) + chr(9) + chr(34) + "start" + chr(34) + chr(58) + chr(9) + chr(123) + chr(10) + chr(9) + chr(9) + chr(34) + "connected" + chr(34) + chr(58) + chr(9) + chr(91) + chr(93)
+pos = content.rfind(marker)
+if pos > 0:
+    cleaned = content[:pos].rstrip()
+    with open(filepath, "w") as f:
+        f.write(cleaned)
+    print(f"  Cleaned: {filepath}")
+' "$logfile" 2>/dev/null || echo "  Warning: Could not clean $logfile"
+      fi
+    fi
+  done
+  
   echo 'All servers stopped.'
   echo "Receiver logs saved to: $LOG_DIR"
+  # Show summary of valid logs
+  VALID_LOGS=$(ls -1 "$LOG_DIR"/*.json 2>/dev/null | wc -l)
+  echo "Valid log files: $VALID_LOGS"
   exit 0
 }
 
-trap cleanup SIGINT SIGTERM
+trap cleanup SIGINT SIGTERM EXIT
 
 # Wait and show connection status periodically
 echo 'Receiver is ready. Waiting for traffic...'

@@ -225,7 +225,7 @@ def load_iperf_logs(log_dir: str, metric: str = 'goodput') -> Dict[str, Dict]:
     if unmerged_count > 0 and metric == 'goodput':
         print()
         print("=" * 70)
-        print("   WARNING: Unmerged sender-only logs detected!")
+        print("  WARNING: Unmerged sender-only logs detected!")
         print("=" * 70)
         print(f"   Found {unmerged_count} unmerged files, {merged_count} merged files")
         print()
