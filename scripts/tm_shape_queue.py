@@ -15,25 +15,21 @@ class TeeWriter:
             self.log_file = open(log_file, mode, encoding="utf-8", buffering=1)
             # Write header with timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log started at {timestamp}
-")
-            self.log_file.write(f"# Log file: {log_file}
-")
+            self.log_file.write(f"# Log started at {timestamp}\n")
+            self.log_file.write(f"# Log file: {log_file}\n")
     
     def write(self, msg):
         """Write message to both stdout and log file."""
         print(msg)
         if self.log_file:
-            self.log_file.write(msg + "
-")
+            self.log_file.write(msg + "\n")
             self.log_file.flush()
     
     def close(self):
         """Close log file and write footer."""
         if self.log_file:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log ended at {timestamp}
-")
+            self.log_file.write(f"# Log ended at {timestamp}\n")
             self.log_file.close()
             self.log_file = None
 
