@@ -83,6 +83,25 @@ METRICS_CONFIG = {
 }
 
 
+def check_merged_status(data: Dict) -> Tuple[bool, str]:
+    """Check if iperf3 JSON data is from merged logs.
+    
+    Args:
+        data: Parsed iperf3 JSON data
+        
+    Returns:
+        Tuple of (is_merged, merge_info_string)
+    """
+    if 'start' in data:
+        merged = data['start'].get('merged', False)
+        merge_info = data['start'].get('merge_info', '')
+        if merged:
+            return True, "merged (sender+receiver)"
+        elif merge_info:
+            return False, f"not merged ({merge_info})"
+    return False, "unknown (likely sender-only)"
+
+
 def parse_iperf3_json(filepath: str, metric: str = 'goodput') -> Tuple[List[float], List[float], Optional[str]]:
     """
     Parse iperf3 JSON log file and extract time series data for the specified metric.
@@ -158,9 +177,25 @@ def load_iperf_logs(log_dir: str, metric: str = 'goodput') -> Dict[str, Dict]:
         print(f"Warning: No JSON files found in {log_dir}")
         return flows
     
+    # Track merge status for warning
+    merged_count = 0
+    unmerged_count = 0
+    
     for filepath in sorted(json_files):
         filename = os.path.basename(filepath)
         flow_name = os.path.splitext(filename)[0]
+        
+        # Check merge status
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            is_merged, merge_info = check_merged_status(data)
+            if is_merged:
+                merged_count += 1
+            else:
+                unmerged_count += 1
+        except:
+            unmerged_count += 1
         
         timestamps, values, cc_algo = parse_iperf3_json(filepath, metric)
         
@@ -185,6 +220,26 @@ def load_iperf_logs(log_dir: str, metric: str = 'goodput') -> Dict[str, Dict]:
                 'filepath': filepath
             }
             print(f"Loaded {flow_name}: {len(timestamps)} data points, CC={cc_algo}")
+    
+    # Print merge status warning
+    if unmerged_count > 0 and metric == 'goodput':
+        print()
+        print("=" * 70)
+        print("   WARNING: Unmerged sender-only logs detected!")
+        print("=" * 70)
+        print(f"   Found {unmerged_count} unmerged files, {merged_count} merged files")
+        print()
+        print("   For accurate goodput measurement, use merged logs:")
+        print("   1. Collect logs from both sender and receiver")
+        print("   2. Run: python3 merge_iperf3_logs.py \\")
+        print("             --sender-dir <sender_logs> \\")
+        print("             --receiver-dir <receiver_logs> \\")
+        print("             --output-dir <merged_logs>")
+        print("   3. Then visualize: python3 visualize_iperf3.py --iperf-dir <merged_logs>")
+        print()
+        print("   Sender logs overestimate goodput (TCP send buffer writes, not actual delivery)")
+        print("=" * 70)
+        print()
     
     return flows
 

@@ -301,6 +301,15 @@ def generate_receiver_script(args, config, filename="run_receiver.sh"):
     lines.append(f"BIND_IP={args.receiver_bind_ip}")
     lines.append("")
     
+    # Log directory setup for receiver
+    if args.log_dir:
+        lines.append(f"LOG_DIR=\"{args.log_dir}_{args.config}_receiver\"")
+        lines.append("mkdir -p \"$LOG_DIR\"")
+        lines.append("echo \"Receiver logs will be saved to $LOG_DIR\"")
+    else:
+        lines.append("LOG_DIR=\"\"")
+    lines.append("")
+    
     lines.append("# 1. Set MTU")
     lines.append(f"echo 'Setting MTU to {config['mtu']} on $INTERFACE...'")
     lines.append(f"sudo ifconfig $INTERFACE mtu {config['mtu']}")
@@ -319,27 +328,57 @@ def generate_receiver_script(args, config, filename="run_receiver.sh"):
     lines.append("# 3. Start multiple iperf3 Servers (one per flow)")
     lines.append("# iperf3 can only handle one client per server instance,")
     lines.append("# so we need to start multiple servers on different ports.")
+    lines.append("# Each server logs to a JSON file for accurate goodput measurement.")
+    lines.append("# NOTE: Receiver logs provide accurate goodput (bits_per_second)")
+    lines.append("#       Sender logs provide accurate RTT, cwnd, retransmits")
     lines.append(f"echo 'Starting {MAX_FLOWS} iperf3 server instances on ports {BASE_PORT}-{BASE_PORT + MAX_FLOWS - 1}...'")
     lines.append("echo \"Binding to IP: $BIND_IP\"")
     lines.append("")
     lines.append("# Array to store server PIDs")
     lines.append("declare -a IPERF_PIDS")
     lines.append("")
+    
+    # Start iperf3 servers with JSON logging
     lines.append(f"for port in $(seq {BASE_PORT} {BASE_PORT + MAX_FLOWS - 1}); do")
-    lines.append("  iperf3 -s -B $BIND_IP -p $port -D")  # -B to bind to specific IP, -D for daemon mode
-    lines.append("  IPERF_PIDS+=($!)")
+    if args.log_dir:
+        # Determine flow type based on port range
+        # Ports 5201-5225 are for Cubic flows (flow IDs 1-25)
+        # Ports 5226-5250 are for Prague flows (flow IDs 1-25)
+        lines.append("  # Determine flow type and ID based on port")
+        lines.append(f"  if [ $port -lt {BASE_PORT + 25} ]; then")
+        lines.append(f"    FLOW_ID=$((port - {BASE_PORT} + 1))")
+        lines.append("    LOGFILE=\"$LOG_DIR/cubic_flow_${FLOW_ID}.json\"")
+        lines.append("  else")
+        lines.append(f"    FLOW_ID=$((port - {BASE_PORT + 25} + 1))")
+        lines.append("    LOGFILE=\"$LOG_DIR/prague_flow_${FLOW_ID}.json\"")
+        lines.append("  fi")
+        lines.append(f"  iperf3 -s -B $BIND_IP -p $port -J --logfile \"$LOGFILE\" &")
+        lines.append("  IPERF_PIDS+=($!)")
+        lines.append("  echo \"  Started iperf3 server on port $port -> $LOGFILE\"")
+    else:
+        lines.append("  iperf3 -s -B $BIND_IP -p $port -D")  # -D for daemon mode (no logging)
+        lines.append("  IPERF_PIDS+=($!)")
     lines.append("done")
     lines.append("")
     lines.append(f"echo '{MAX_FLOWS} iperf3 servers started (ports {BASE_PORT}-{BASE_PORT + MAX_FLOWS - 1}) on $BIND_IP.'")
+    if args.log_dir:
+        lines.append("echo 'Each server will log to JSON file for accurate goodput measurement.'")
     lines.append("echo 'Press Ctrl+C to stop all servers.'")
     lines.append("")
     lines.append("# Function to cleanup servers on exit")
     lines.append("cleanup() {")
+    lines.append("  echo ''")
     lines.append("  echo 'Stopping all iperf3 servers...'")
     lines.append(f"  for port in $(seq {BASE_PORT} {BASE_PORT + MAX_FLOWS - 1}); do")
-    lines.append("    pkill -f \"iperf3 -s -p $port\" 2>/dev/null || true")
+    lines.append("    pkill -f \"iperf3 -s.*-p $port\" 2>/dev/null || true")
+    lines.append("  done")
+    lines.append("  # Also kill by PID")
+    lines.append("  for pid in \"${IPERF_PIDS[@]}\"; do")
+    lines.append("    kill $pid 2>/dev/null || true")
     lines.append("  done")
     lines.append("  echo 'All servers stopped.'")
+    if args.log_dir:
+        lines.append("  echo \"Receiver logs saved to: $LOG_DIR\"")
     lines.append("  exit 0")
     lines.append("}")
     lines.append("")
@@ -412,7 +451,8 @@ def main():
     print("SAMPLING DETAILS")
     print("-"*60)
     print(f"\n📊 iperf3 sampling: {IPERF3_INTERVAL}s (100ms) intervals")
-    print(f"   - Provides throughput, retransmissions per flow")
+    print(f"   - SENDER logs: RTT, cwnd, retransmits (accurate)")
+    print(f"   - RECEIVER logs: goodput/throughput (accurate)")
     print(f"   - Output: JSON files in log directory")
     print(f"\n📊 ss sampler: {args.ss_interval_ms}ms intervals (fine-grained)")
     print(f"   - Provides cwnd, rtt, ssthresh, bytes_sent/acked, etc.")
@@ -420,14 +460,20 @@ def main():
     print(f"   - Run CONCURRENTLY with sender script for best results")
     
     if args.log_dir:
-        log_dir_with_config = f"{args.log_dir}_{args.config}"
+        sender_log_dir = f"{args.log_dir}_{args.config}"
+        receiver_log_dir = f"{args.log_dir}_{args.config}_receiver"
         print(f"\n" + "-"*60)
         print("LOG FILES")
         print("-"*60)
-        print(f"\n   Log directory: {log_dir_with_config}/")
-        print(f"   ├── cubic_flow_{{1..25}}.json  (iperf3, 100ms intervals)")
-        print(f"   ├── prague_flow_{{1..25}}.json (iperf3, 100ms intervals)")
-        print(f"   └── ss_stats.csv              (ss sampler, {args.ss_interval_ms}ms intervals)")
+        print(f"\n   Sender log directory: {sender_log_dir}/")
+        print(f"   ├── cubic_flow_{{1..25}}.json  (RTT, cwnd, retransmits)")
+        print(f"   ├── prague_flow_{{1..25}}.json (RTT, cwnd, retransmits)")
+        print(f"   └── ss_stats.csv              (fine-grained stats)")
+        print(f"\n   Receiver log directory: {receiver_log_dir}/")
+        print(f"   ├── cubic_flow_{{1..25}}.json  (accurate goodput)")
+        print(f"   └── prague_flow_{{1..25}}.json (accurate goodput)")
+        print(f"\n   ⚠️  IMPORTANT: Use merge_iperf3_logs.py to combine sender/receiver logs")
+        print(f"      python3 merge_iperf3_logs.py --sender-dir {sender_log_dir} --receiver-dir {receiver_log_dir} --output-dir merged_logs/")
     else:
         print("\n⚠️  Logging is disabled. Use --log-dir to enable.")
     
