@@ -5,7 +5,6 @@ usage() {
   cat <<'EOF'
 Usage:
   tm_shape_queue.sh apply  --dev-port 189 [--queue 0] --max-gbps 1 [--sde /root/bf-sde-9.13.0]
-  tm_shape_queue.sh buffer --dev-port 189 [--queue 0] --max-cells 100 [--sde /root/bf-sde-9.13.0]
   tm_shape_queue.sh reset  [--dev-port 189] [--queue 0]   # Without --dev-port: reset ALL ports
   tm_shape_queue.sh watch  --dev-port 189 [--queue 0] [--interval 1] [--duration 30 | --iterations 60] [--log-file /path/to/log.tsv]
 
@@ -17,18 +16,11 @@ Notes:
 - pg_id is derived from `tf1.tm.port.cfg` (do not assume pg_id = dev_port % 128).
 - Shaping can be applied at TM port or TM queue scope; default is port scope.
 - Rate encoding: this SDE build uses unit="BPS" with values in ~1kbps units.
-- Buffer limit: each cell is ~80 bytes (Memory Interface Block cell size on Tofino1).
 - Shaping/counters reset when `bf_switchd` (or `contrl_test`) restarts; re-run `apply` after a restart.
 
 Examples:
   # Limit dev_port 189 queue0 to 1Gbps
   ./scripts/tm_shape_queue.sh apply --dev-port 189 --queue 0 --max-gbps 1
-
-  # Limit dev_port 189 queue0 buffer to 100 cells (~8KB)
-  ./scripts/tm_shape_queue.sh buffer --dev-port 189 --queue 0 --max-cells 100
-
-  # Limit dev_port 189 queue0 buffer to 16KB
-  ./scripts/tm_shape_queue.sh buffer --dev-port 189 --queue 0 --max-kb 16
 
   # Watch counters for 30s
   ./scripts/tm_shape_queue.sh watch --dev-port 189 --queue 0 --duration 30 --interval 1
@@ -52,8 +44,6 @@ CLEAR_COUNTERS=0
 MAX_GBPS=""
 MAX_MBPS=""
 MAX_BPS=""
-MAX_CELLS=""
-MAX_KB=""
 INTERVAL="1"
 DURATION=""
 ITERATIONS=""
@@ -71,8 +61,6 @@ while [[ $# -gt 0 ]]; do
     --max-gbps) MAX_GBPS="$2"; shift 2;;
     --max-mbps) MAX_MBPS="$2"; shift 2;;
     --max-bps) MAX_BPS="$2"; shift 2;;
-    --max-cells) MAX_CELLS="$2"; shift 2;;
-    --max-kb) MAX_KB="$2"; shift 2;;
     --interval) INTERVAL="$2"; shift 2;;
     --duration) DURATION="$2"; shift 2;;
     --iterations) ITERATIONS="$2"; shift 2;;
@@ -94,19 +82,6 @@ case "$cmd" in
     MODE=apply
     if [[ -z "$DEV_PORT" ]]; then
       echo "--dev-port is required for apply"
-      usage
-      exit 2
-    fi
-    ;;
-  buffer)
-    MODE=buffer
-    if [[ -z "$DEV_PORT" ]]; then
-      echo "--dev-port is required for buffer"
-      usage
-      exit 2
-    fi
-    if [[ -z "$MAX_CELLS" && -z "$MAX_KB" ]]; then
-      echo "--max-cells or --max-kb is required for buffer"
       usage
       exit 2
     fi
@@ -196,12 +171,6 @@ BOOT=/tmp/tm_shape_queue_bootstrap.py
   fi
   if [[ -n "$MAX_BPS" ]]; then
     echo "sys.argv += ['--max-bps', '$MAX_BPS']"
-  fi
-  if [[ -n "$MAX_CELLS" ]]; then
-    echo "sys.argv += ['--max-cells', '$MAX_CELLS']"
-  fi
-  if [[ -n "$MAX_KB" ]]; then
-    echo "sys.argv += ['--max-kb', '$MAX_KB']"
   fi
   if [[ -n "$LOG_FILE" ]]; then
     echo "sys.argv += ['--log-file', '$LOG_FILE']"

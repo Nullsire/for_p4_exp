@@ -15,21 +15,25 @@ class TeeWriter:
             self.log_file = open(log_file, mode, encoding="utf-8", buffering=1)
             # Write header with timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log started at {timestamp}\n")
-            self.log_file.write(f"# Log file: {log_file}\n")
+            self.log_file.write(f"# Log started at {timestamp}
+")
+            self.log_file.write(f"# Log file: {log_file}
+")
     
     def write(self, msg):
         """Write message to both stdout and log file."""
         print(msg)
         if self.log_file:
-            self.log_file.write(msg + "\n")
+            self.log_file.write(msg + "
+")
             self.log_file.flush()
     
     def close(self):
         """Close log file and write footer."""
         if self.log_file:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log ended at {timestamp}\n")
+            self.log_file.write(f"# Log ended at {timestamp}
+")
             self.log_file.close()
             self.log_file = None
 
@@ -124,7 +128,7 @@ def main() -> None:
     )
     parser.add_argument("--dev-port", type=int, required=False, default=None)
     parser.add_argument("--queue", type=int, default=0)
-    parser.add_argument("--mode", choices=["apply", "buffer", "reset", "watch"], default="watch")
+    parser.add_argument("--mode", choices=["apply", "reset", "watch"], default="watch")
     parser.add_argument(
         "--all-queues",
         action="store_true",
@@ -138,8 +142,6 @@ def main() -> None:
     parser.add_argument("--max-gbps", type=float, default=None)
     parser.add_argument("--max-mbps", type=float, default=None)
     parser.add_argument("--max-bps", type=int, default=None)
-    parser.add_argument("--max-cells", type=int, default=None, help="Max buffer size in cells (for buffer mode)")
-    parser.add_argument("--max-kb", type=float, default=None, help="Max buffer size in KB (for buffer mode)")
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--iterations", type=int, default=None)
@@ -167,7 +169,7 @@ def main() -> None:
 
     # For reset mode without dev_port, we reset all ports
     if mode == "reset" and dev_port is None:
-        _output("Resetting shaping and buffer for ALL ports (Pipe 0: 0-127, Pipe 1: 128-255)...")
+        _output("Resetting shaping for ALL ports (Pipe 0: 0-127, Pipe 1: 128-255)...")
         
         root = _get_root()
         tf1 = getattr(root, "tf1", globals().get("tf1"))
@@ -176,15 +178,8 @@ def main() -> None:
         
         port_sched_cfg = tf1.tm.port.sched_cfg
         queue_sched_cfg = tf1.tm.queue.sched_cfg
-        queue_buffer = tf1.tm.queue.buffer
-        
-        # Default buffer values (typical Tofino1 defaults)
-        DEFAULT_GUARANTEED_CELLS = 20
-        DEFAULT_POOL_MAX_CELLS = 13  # Default is dynamic, this is a safe value
-        DEFAULT_HYSTERESIS_CELLS = 32
         
         reset_count = 0
-        buffer_reset_count = 0
         skipped_count = 0
         
         # Instead of scanning all 256 ports and checking each one (which causes error messages),
@@ -214,7 +209,7 @@ def main() -> None:
                     pg_id = int(data.get(b"pg_id", -1))
                     egress_qids = list(data.get(b"egress_qid_queues", []))
                 except Exception:
-                    # Port doesn't exist or not configured - skip buffer reset for this port
+                    # Port doesn't exist or not configured
                     if scope == "port":
                         reset_count += 1  # Port shaping was reset successfully above
                     else:
@@ -243,30 +238,12 @@ def main() -> None:
                         except Exception:
                             pass
                 
-                # Also reset buffer configuration for all 8 queues
-                for q in range(8):
-                    try:
-                        qkey = _map_queue_key(q, egress_qids)
-                        queue_buffer.mod_with_shared_pool(
-                            pg_id=pg_id,
-                            pg_queue=qkey,
-                            guaranteed_cells=DEFAULT_GUARANTEED_CELLS,
-                            hysteresis_cells=DEFAULT_HYSTERESIS_CELLS,
-                            tail_drop_enable=True,
-                            pool_id="EG_APP_POOL_0",
-                            pool_max_cells=DEFAULT_POOL_MAX_CELLS,
-                            dynamic_baf="80%",
-                        )
-                        buffer_reset_count += 1
-                    except Exception:
-                        pass
-                
                 reset_count += 1
             except Exception:
                 skipped_count += 1
                 continue
         
-        _output(f"Reset completed: {reset_count} ports processed, {buffer_reset_count} queue buffers reset, {skipped_count} ports skipped (inactive)")
+        _output(f"Reset completed: {reset_count} ports processed, {skipped_count} ports skipped (inactive)")
         _writer.close()
         return
 
@@ -372,132 +349,14 @@ def main() -> None:
         _writer.close()
         return
 
-    if mode == "buffer":
-        # Buffer limit mode: configure queue buffer size
-        # Cell size on Tofino1 is approximately 80 bytes (Memory Interface Block cell)
-        CELL_SIZE_BYTES = 80
-        
-        max_cells = args.max_cells
-        if max_cells is None and args.max_kb is not None:
-            # Convert KB to cells: 1 KB = 1024 bytes, each cell ~80 bytes
-            max_cells = int((args.max_kb * 1024) / CELL_SIZE_BYTES)
-        
-        if max_cells is None:
-            raise SystemExit("--mode buffer requires --max-cells or --max-kb")
-        
-        # Ensure at least 1 cell
-        max_cells = max(1, max_cells)
-        
-        # Determine which queues to configure
-        if args.all_queues:
-            queues_to_config = list(range(8))
-            _output(
-                f"Configuring buffer limit on dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr}) ALL queues (0-7)"
-            )
-        else:
-            queues_to_config = [pg_queue]
-            _output(
-                f"Configuring buffer limit on dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr}) queue={pg_queue}"
-            )
-        
-        if egress_qids:
-            _output(f"Egress qid map (qid for queue 0-7): {egress_qids[:8]}")
-        _output(f"Target max_cells: {max_cells} cells (~{max_cells * CELL_SIZE_BYTES / 1024:.1f} KB)")
-        
-        # Get queue buffer table
-        queue_buffer = tf1.tm.queue.buffer
-        
-        # Configure buffer for each queue in the list
-        success_count = 0
-        fail_count = 0
-        
-        for q in queues_to_config:
-            qkey = _map_queue_key(q, egress_qids)
-            
-            try:
-                # Show current config for first queue only
-                if q == queues_to_config[0]:
-                    try:
-                        cur_cfg = _entry_raw(queue_buffer.get(pg_id=pg_id, pg_queue=qkey, from_hw=True, print_ents=False))
-                        _output(f"Current queue.buffer (queue {q}): {cur_cfg}")
-                    except Exception as e:
-                        _output(f"Could not read current queue.buffer: {e}")
-                
-                # Use mod_with_shared_pool method
-                queue_buffer.mod_with_shared_pool(
-                    pg_id=pg_id,
-                    pg_queue=qkey,
-                    pool_max_cells=max_cells,
-                    guaranteed_cells=0,
-                    tail_drop_enable=True,
-                )
-                success_count += 1
-                _output(f"Queue {q} (key={qkey}): pool_max_cells={max_cells} ✓")
-            except Exception as e:
-                fail_count += 1
-                _output(f"Queue {q} (key={qkey}): FAILED - {e}")
-        
-        # Summary
-        if success_count > 0:
-            _output(f"\nSuccessfully configured {success_count} queue(s), {fail_count} failed")
-            
-            # Verify final config for first queue
-            try:
-                qkey = _map_queue_key(queues_to_config[0], egress_qids)
-                new_cfg = _entry_raw(queue_buffer.get(pg_id=pg_id, pg_queue=qkey, from_hw=True, print_ents=False))
-                _output(f"New queue.buffer (queue {queues_to_config[0]}): {new_cfg}")
-            except:
-                pass
-        else:
-            _output("")
-            _output("=" * 60)
-            _output("ERROR: Could not configure buffer limit for any queue.")
-            _output("Your SDE version may not support runtime buffer configuration,")
-            _output("or the P4 program may need to configure TM pools at compile time.")
-            _output("")
-            _output("Alternative approaches:")
-            _output("1. Use 'apply' command with very low rate limit to induce drops")
-            _output("2. Increase traffic volume (more parallel flows)")
-            _output("3. Configure buffer pools in P4 program")
-            _output("=" * 60)
-        
-        _writer.close()
-        return
-
     if mode == "reset":
         _output(
-            f"Resetting shaping and buffer scope={scope} on dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr}) queue={pg_queue}"
+            f"Resetting shaping scope={scope} on dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr}) queue={pg_queue}"
         )
-        
-        # Default buffer values (typical Tofino1 defaults)
-        DEFAULT_GUARANTEED_CELLS = 20
-        DEFAULT_POOL_MAX_CELLS = 13
-        DEFAULT_HYSTERESIS_CELLS = 32
         
         if scope == "port":
             port_sched_cfg.mod(dev_port=dev_port, max_rate_enable=False)
             new_cfg = _entry_raw(port_sched_cfg.get(dev_port=dev_port, from_hw=True, print_ents=False))
-            
-            # Reset buffer for all 8 queues of this port
-            queue_buffer = tf1.tm.queue.buffer
-            buffer_reset_count = 0
-            for q in range(8):
-                try:
-                    qkey = _map_queue_key(q, egress_qids)
-                    queue_buffer.mod_with_shared_pool(
-                        pg_id=pg_id,
-                        pg_queue=qkey,
-                        guaranteed_cells=DEFAULT_GUARANTEED_CELLS,
-                        hysteresis_cells=DEFAULT_HYSTERESIS_CELLS,
-                        tail_drop_enable=True,
-                        pool_id="EG_APP_POOL_0",
-                        pool_max_cells=DEFAULT_POOL_MAX_CELLS,
-                        dynamic_baf="80%",
-                    )
-                    buffer_reset_count += 1
-                except Exception:
-                    pass
-            _output(f"Reset buffer for {buffer_reset_count} queues")
         else:
             qkey = _map_queue_key(pg_queue, egress_qids)
             queue_sched_cfg.mod(
@@ -508,23 +367,6 @@ def main() -> None:
                 max_rate_enable=False,
             )
             new_cfg = _entry_raw(queue_sched_cfg.get(pg_id=pg_id, pg_queue=qkey, from_hw=True, print_ents=False))
-            
-            # Reset buffer for the specific queue
-            try:
-                queue_buffer = tf1.tm.queue.buffer
-                queue_buffer.mod_with_shared_pool(
-                    pg_id=pg_id,
-                    pg_queue=qkey,
-                    guaranteed_cells=DEFAULT_GUARANTEED_CELLS,
-                    hysteresis_cells=DEFAULT_HYSTERESIS_CELLS,
-                    tail_drop_enable=True,
-                    pool_id="EG_APP_POOL_0",
-                    pool_max_cells=DEFAULT_POOL_MAX_CELLS,
-                    dynamic_baf="80%",
-                )
-                _output(f"Reset buffer for queue {pg_queue}")
-            except Exception as e:
-                _output(f"Warning: Could not reset buffer for queue {pg_queue}: {e}")
         
         _output(f"New sched_cfg: {new_cfg}")
         _writer.close()
@@ -547,18 +389,18 @@ def main() -> None:
             mapped = [_map_queue_key(i, egress_qids) for i in range(8)]
             _output(f"# egress_qid_queues (logical 0-7 -> tm key): {mapped}")
         _output(
-            "time\tdev_port\t"
-            "egress_drop\td_egress_drop\tegress_usage\tegress_wm\t"
-            "rx_rate\ttx_rate\t"
-            "q_drop[0-7]\td_q_drop[0-7]\tsum_d_q_drop\td_unattributed\t"
-            "q_usage[0-7]\tq_wm[0-7]"
+            "time	dev_port	"
+            "egress_drop	d_egress_drop	egress_usage	egress_wm	"
+            "rx_rate	tx_rate	"
+            "q_drop[0-7]	d_q_drop[0-7]	sum_d_q_drop	d_unattributed	"
+            "q_usage[0-7]	q_wm[0-7]"
         )
     else:
         _output(
-            "time\tdev_port\tqueue\t"
-            "egress_drop\td_egress_drop\tegress_usage\tegress_wm\t"
-            "queue_drop\td_queue_drop\tqueue_usage\tqueue_wm\t"
-            "rx_rate\ttx_rate"
+            "time	dev_port	queue	"
+            "egress_drop	d_egress_drop	egress_usage	egress_wm	"
+            "queue_drop	d_queue_drop	queue_usage	queue_wm	"
+            "rx_rate	tx_rate"
         )
 
     start = time.time()
@@ -600,13 +442,13 @@ def main() -> None:
             d_unattributed = max(0, int(d_eg_drop) - sum_d_q)
 
             _output(
-                f"{now:.3f}\t{dev_port}\t"
-                f"{eg_drop}\t{d_eg_drop}\t{eg.get('usage_cells', 0)}\t{eg.get('watermark_cells', 0)}\t"
-                f"{ps.get('$RX_RATE', 0)}\t{ps.get('$TX_RATE', 0)}\t"
-                f"[{','.join(str(x) for x in q_drops)}]\t"
-                f"[{','.join(str(x) for x in d_q_drops)}]\t"
-                f"{sum_d_q}\t{d_unattributed}\t"
-                f"[{','.join(str(x) for x in q_usage)}]\t"
+                f"{now:.3f}	{dev_port}	"
+                f"{eg_drop}	{d_eg_drop}	{eg.get('usage_cells', 0)}	{eg.get('watermark_cells', 0)}	"
+                f"{ps.get('$RX_RATE', 0)}	{ps.get('$TX_RATE', 0)}	"
+                f"[{','.join(str(x) for x in q_drops)}]	"
+                f"[{','.join(str(x) for x in d_q_drops)}]	"
+                f"{sum_d_q}	{d_unattributed}	"
+                f"[{','.join(str(x) for x in q_usage)}]	"
                 f"[{','.join(str(x) for x in q_wm)}]"
             )
         else:
@@ -620,10 +462,10 @@ def main() -> None:
                 d_q_drop = max(0, q_drop - prev_q_drops[0])
                 prev_q_drops = [q_drop]
             _output(
-                f"{now:.3f}\t{dev_port}\t{pg_queue}\t"
-                f"{eg_drop}\t{d_eg_drop}\t{eg.get('usage_cells', 0)}\t{eg.get('watermark_cells', 0)}\t"
-                f"{q_drop}\t{d_q_drop}\t{q.get('usage_cells', 0)}\t{q.get('watermark_cells', 0)}\t"
-                f"{ps.get('$RX_RATE', 0)}\t{ps.get('$TX_RATE', 0)}"
+                f"{now:.3f}	{dev_port}	{pg_queue}	"
+                f"{eg_drop}	{d_eg_drop}	{eg.get('usage_cells', 0)}	{eg.get('watermark_cells', 0)}	"
+                f"{q_drop}	{d_q_drop}	{q.get('usage_cells', 0)}	{q.get('watermark_cells', 0)}	"
+                f"{ps.get('$RX_RATE', 0)}	{ps.get('$TX_RATE', 0)}"
             )
 
         i += 1

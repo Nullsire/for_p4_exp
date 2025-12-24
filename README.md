@@ -95,9 +95,6 @@ python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --output goodp
 # 限速
 ./scripts/tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
 
-# 限制队列 Buffer
-./scripts/tm_shape_queue.sh buffer --dev-port 189 --all-queues --max-cells 100
-
 # 实时监控
 ./scripts/tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues --log-file ./tm.tsv
 
