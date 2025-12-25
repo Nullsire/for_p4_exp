@@ -1,1 +1,3 @@
 **/__pycache__
+**/plots
+**/tcp_metrics.csv

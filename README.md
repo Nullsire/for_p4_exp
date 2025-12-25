@@ -38,13 +38,18 @@ python3 ./scripts/gen_experiment.py --config I --out-dir ./scripts/
 生成的脚本：
 - `run_sender_confI.sh` - 发送端脚本
 - `run_receiver_confI.sh` - 接收端脚本（含 JSON 日志记录）
-- `run_ss_sampler_confI.sh` - TCP 细粒度采样脚本
 
 ### 5. 运行实验
 
 1. **Receiver 端**：运行 `run_receiver_confI.sh`
 2. **Sender 端**：运行 `run_sender_confI.sh`
-3. **交换机**：实时监控队列
+3. **Sender 端 (可选)**：运行 TCP 高精度采集器
+   ```bash
+   # 采集 TCP 指标 (RTT, CWND 等) 到 tcp_metrics.csv
+   # 建议 duration 略长于实验时长一致 (例如 500s)
+   python3 ./scripts/tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv
+   ```
+4. **交换机**：实时监控队列
    ```bash
    ./scripts/tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues
    ```
@@ -52,14 +57,8 @@ python3 ./scripts/gen_experiment.py --config I --out-dir ./scripts/
 ### 6. 数据处理与可视化
 
 ```bash
-# 合并 sender 和 receiver 的日志（获取准确的 goodput 和 RTT）
-python3 ./scripts/merge_iperf3_logs.py \
-    --sender-dir ./exp_logs_I \
-    --receiver-dir ./exp_logs_I_receiver \
-    --output-dir ./merged_logs_I
-
-# 可视化
-python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --output goodput.png
+# 可视化 TCP 细粒度指标 (需先运行 tcp_metrics_collector.py)
+python3 ./scripts/visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output ./exp_logs_I/plots
 ```
 
 ### 7. 实验清理
@@ -67,23 +66,6 @@ python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --output goodp
 ```bash
 ./scripts/tm_shape_queue.sh reset
 ```
-
----
-
-## 📊 指标测量说明
-
-### ⚠️ 重要：Goodput 与 RTT 的准确测量
-
-**iperf3 Sender 和 Receiver 报告的指标准确性不同**：
-
-| 指标 | 准确来源 | 原因 |
-|------|----------|------|
-| **goodput** (bits_per_second) | **Receiver** | Sender 报告的是 TCP 发送缓冲区写入速率，不是实际交付速率 |
-| **rtt** / **rttvar** | **Sender** | 只有 Sender 能通过 ACK 延迟测量 RTT |
-| **retransmits** | **Sender** | 只有 Sender 知道重传次数 |
-| **cwnd** | **Sender** | 发送端的拥塞窗口 |
-
-**解决方案**：使用 `merge_iperf3_logs.py` 合并两端日志，自动选取每个指标的准确来源。
 
 ---
 
@@ -127,37 +109,9 @@ python3 ./scripts/gen_experiment.py --config I --out-dir ./scripts/ --log-dir ./
 
 **负载阶段**：每阶段 120 秒，流数从 1 → 2 → 10 → 25 递增。
 
-### 3. `merge_iperf3_logs.py` - 日志合并工具
-
-合并 sender 和 receiver 的 iperf3 日志，提取各自准确的指标：
-
-```bash
-python3 ./scripts/merge_iperf3_logs.py \
-    --sender-dir ./exp_logs_I \
-    --receiver-dir ./exp_logs_I_receiver \
-    --output-dir ./merged_logs_I
-```
-
-**合并逻辑**：
-- 从 Sender 取：rtt, rttvar, snd_cwnd, retransmits
-- 从 Receiver 取：bits_per_second, bytes
-
-### 4. `visualize_iperf3.py` - iperf3 数据可视化
-
-```bash
-# 可视化 goodput
-python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --metric goodput --output goodput.png
-
-# 可视化 RTT
-python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --metric rtt --output rtt.png
-
-# 可视化所有指标
-python3 ./scripts/visualize_iperf3.py --iperf-dir ./merged_logs_I --metric all --output all.png
-```
-
 **支持的指标**：`goodput`, `bytes`, `retransmits`, `cwnd`, `rtt`, `rttvar`, `all`
 
-### 5. `visualize_tm_queue.py` - TM 队列数据可视化
+### 3. `visualize_tm_queue.py` - TM 队列数据可视化
 
 ```bash
 python3 ./scripts/visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
@@ -165,16 +119,27 @@ python3 ./scripts/visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output 
 
 **支持的指标**：`queue_usage`, `queue_wm`, `drop_rate`, `rate`, `all`, `detailed`
 
-### 6. `visualize_ss.py` - ss 采样数据可视化
+### 4. `tcp_metrics_collector.py` - TCP 高精度指标采集
+
+利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
 
 ```bash
-python3 ./scripts/visualize_ss.py --ss-log ./exp_logs_I/ss_stats.csv --metric cwnd --output cwnd.png
+python3 ./scripts/tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
 ```
 
-### 7. 辅助脚本
+### 5. `visualize_tcp_metrics.py` - TCP 指标可视化
+
+针对 `tcp_metrics_collector.py` 生成的 CSV 数据进行优化可视化，支持大规模数据点。
+
+```bash
+python3 ./scripts/visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
+```
+
+### 6. 辅助脚本
 
 - `check_queues.sh` - 扫描所有端口，显示有拥塞/丢包的端口
 - `scan_valid_pg_ids.py` - 诊断 dev_port 到 pg_id 的映射
+- `read_qdelay.py` - 读取特定寄存器的 qdelay 值
 
 ---
 
@@ -185,9 +150,3 @@ python3 ./scripts/visualize_ss.py --ss-log ./exp_logs_I/ss_stats.csv --metric cw
 
 2. **重启程序后限速失效**
    - 重新运行 `apply` 命令
-
-3. **Goodput 超过设定的带宽限制**
-   - 你可能使用了 sender 端的日志，请使用 `merge_iperf3_logs.py` 合并日志后再可视化
-
-4. **图表中没有 RTT 数据**
-   - RTT 只有 sender 端才有，确保使用了 sender 的日志或合并后的日志
