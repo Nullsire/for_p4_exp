@@ -74,10 +74,10 @@ echo ''
 
 # Show connection count every 10 seconds
 while true; do
-  # Count ESTABLISHED connections on ports 5201-5250
-  # Use ss filter to match destination ports (server-side local ports)
-  # This avoids double-counting that occurs with grep on both local and remote addresses
-  CONN_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | tail -n +2 | wc -l)
-  echo "[$(date '+%H:%M:%S')] Active iperf3 connections: $CONN_COUNT"
+  # Count active iperf3 flows (not TCP connections)
+  # iperf3 creates 2 TCP connections per flow (control + data)
+  # So we count unique local ports in the 5201-5250 range
+  FLOW_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | awk 'NR>1 {split($4,a,":"); print a[2]}' | sort -u | wc -l)
+  echo "[$(date '+%H:%M:%S')] Active iperf3 flows: $FLOW_COUNT"
   sleep 10
 done
