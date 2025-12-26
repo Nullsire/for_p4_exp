@@ -60,12 +60,14 @@ trap cleanup SIGINT SIGTERM EXIT
 
 # Wait and show connection status periodically
 echo 'Receiver is ready. Waiting for traffic...'
-echo "You can monitor traffic with: ss -tn | grep -E '520[0-9]' or netstat -tn | grep -E '520[0-9]'"
+echo "You can monitor traffic with: ss -tn state established | grep -E ':52(0[1-9]|[1-4][0-9]|50)\b'"
 echo ''
 
 # Show connection count every 10 seconds
 while true; do
-  CONN_COUNT=$(ss -tn 2>/dev/null | grep -cE ':520[0-9]' || echo 0)
+  # Count ESTABLISHED connections on ports 5201-5250
+  # ss -tn state established shows only established TCP connections (not listening)
+  CONN_COUNT=$(ss -tn state established 2>/dev/null | grep -cE ':52(0[1-9]|[1-4][0-9]|50)\b' || echo 0)
   echo "[$(date '+%H:%M:%S')] Active iperf3 connections: $CONN_COUNT"
   sleep 10
 done
