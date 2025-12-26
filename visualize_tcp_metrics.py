@@ -140,8 +140,8 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Optimized Visualization of TCP metrics (No Downsampling).")
-    parser.add_argument("--input", default="scripts/tcp_metrics.csv", help="Path to the input CSV file.")
-    parser.add_argument("--output", default="scripts/plots", help="Directory to save the plots.")
+    parser.add_argument("--input", default="tcp_metrics.csv", help="Path to the input CSV file.")
+    parser.add_argument("--output", default="plots", help="Directory to save the plots.")
     
     args = parser.parse_args()
     
