@@ -76,8 +76,9 @@ echo ''
 while true; do
   # Count active iperf3 flows (not TCP connections)
   # iperf3 creates 2 TCP connections per flow (control + data)
-  # So we count unique local ports in the 5201-5250 range
-  FLOW_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | awk 'NR>1 {split($4,a,":"); print a[2]}' | sort -u | wc -l)
+  # So we count unique server-side ports (sport) in the 5201-5250 range
+  # Use awk to find the local address column and extract port after last colon
+  FLOW_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | awk 'NR>1 {for(i=1;i<=NF;i++){if($i ~ /^192\.168\.6\.[0-9]+:52[0-5][0-9]$/){n=split($i,a,":"); print a[n]}}}' | sort -u | wc -l)
   echo "[$(date '+%H:%M:%S')] Active iperf3 flows: $FLOW_COUNT"
   sleep 10
 done
