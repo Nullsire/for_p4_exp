@@ -54,20 +54,30 @@ cleanup() {
   pkill -9 -f "iperf3 -s.*-p 52" 2>/dev/null || true
   
   echo 'All servers stopped.'
+}
+
+# Use a flag to prevent duplicate cleanup calls
+CLEANUP_DONE=0
+safe_cleanup() {
+  if [ $CLEANUP_DONE -eq 0 ]; then
+    CLEANUP_DONE=1
+    cleanup
+  fi
   exit 0
 }
-trap cleanup SIGINT SIGTERM EXIT
+trap safe_cleanup SIGINT SIGTERM EXIT
 
 # Wait and show connection status periodically
 echo 'Receiver is ready. Waiting for traffic...'
-echo "You can monitor traffic with: ss -tn state established | grep -E ':52(0[1-9]|[1-4][0-9]|50)\b'"
+echo "You can monitor traffic with: ss -tn state established '( dport >= 5201 and dport <= 5250 )'"
 echo ''
 
 # Show connection count every 10 seconds
 while true; do
   # Count ESTABLISHED connections on ports 5201-5250
-  # ss -tn state established shows only established TCP connections (not listening)
-  CONN_COUNT=$(ss -tn state established 2>/dev/null | grep -cE ':52(0[1-9]|[1-4][0-9]|50)\b' || echo 0)
+  # Use ss filter to match destination ports (server-side local ports)
+  # This avoids double-counting that occurs with grep on both local and remote addresses
+  CONN_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | tail -n +2 | wc -l)
   echo "[$(date '+%H:%M:%S')] Active iperf3 connections: $CONN_COUNT"
   sleep 10
 done
