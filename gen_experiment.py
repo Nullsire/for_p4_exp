@@ -46,7 +46,7 @@ def generate_sender_script(args, config, filename="run_sender.sh"):
     
     lines.append("# 1. Set MTU")
     lines.append(f"echo 'Setting MTU to {config['mtu']} on $INTERFACE...'")
-    lines.append(f"sudo ifconfig $INTERFACE mtu {config['mtu']}")
+    lines.append(f"sudo ip link set dev $INTERFACE mtu {config['mtu']}")
     lines.append("")
     
     lines.append("# 2. Start Traffic Phases")
@@ -109,7 +109,7 @@ def generate_sender_script(args, config, filename="run_sender.sh"):
     lines.append("echo 'Experiment Done.'")
     
     with open(filename, 'w') as f:
-        f.write(''.join(lines) + '')
+        f.write('\n'.join(lines) + '\n')
     os.chmod(filename, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH)
     print(f"Generated {filename}")
 
@@ -125,7 +125,7 @@ def generate_receiver_script(args, config, filename="run_receiver.sh"):
     
     lines.append("# 1. Set MTU")
     lines.append(f"echo 'Setting MTU to {config['mtu']} on $INTERFACE...'")
-    lines.append(f"sudo ifconfig $INTERFACE mtu {config['mtu']}")
+    lines.append(f"sudo ip link set dev $INTERFACE mtu {config['mtu']}")
     lines.append("")
     
     lines.append("# 2. Set RTT (tc netem)")
@@ -181,23 +181,22 @@ def generate_receiver_script(args, config, filename="run_receiver.sh"):
     lines.append("  echo 'All servers stopped.'")
     lines.append("  exit 0")
     lines.append("}")
-    lines.append("")
     lines.append("trap cleanup SIGINT SIGTERM EXIT")
     lines.append("")
     lines.append("# Wait and show connection status periodically")
     lines.append("echo 'Receiver is ready. Waiting for traffic...'")
-    lines.append('echo "You can monitor traffic with: ss -tn | grep -E \'520[0-9]\' or netstat -tn | grep -E \'520[0-9]\'"')
+    lines.append("echo \"You can monitor traffic with: ss -tn | grep -E '520[0-9]' or netstat -tn | grep -E '520[0-9]'\"")
     lines.append("echo ''")
     lines.append("")
     lines.append("# Show connection count every 10 seconds")
     lines.append("while true; do")
     lines.append("  CONN_COUNT=$(ss -tn 2>/dev/null | grep -cE ':520[0-9]' || echo 0)")
-    lines.append('  echo "[$(date \'+%H:%M:%S\')] Active iperf3 connections: $CONN_COUNT"')
+    lines.append('  echo "[$(date ' + "'+%H:%M:%S')] Active iperf3 connections: $CONN_COUNT\"")
     lines.append("  sleep 10")
     lines.append("done")
     
     with open(filename, 'w') as f:
-        f.write(''.join(lines) + '')
+        f.write('\n'.join(lines) + '\n')
     os.chmod(filename, stat.S_IRWXU | stat.S_IRWXG | stat.S_IROTH | stat.S_IXOTH)
     print(f"Generated {filename}")
 
