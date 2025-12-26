@@ -25,13 +25,13 @@ make
 对 dev_port=189 设置 120Mbps 限速：
 
 ```bash
-./scripts/tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
+./tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
 ```
 
 ### 4. 生成实验脚本
 
 ```bash
-python3 ./gen_experiment.py --config I --out-dir ./exp_scripts/
+python3 ./gen_experiment.py --config I --out-dir ./exp_
 ```
 
 生成的脚本：
@@ -50,7 +50,7 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts/
    ```
 4. **交换机**：实时监控队列
    ```bash
-   ./scripts/tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues
+   ./tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues
    ```
 
 ### 6. 数据处理与可视化
@@ -63,7 +63,7 @@ python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output
 ### 7. 实验清理
 
 ```bash
-./scripts/tm_shape_queue.sh reset
+./tm_shape_queue.sh reset
 ```
 
 ---
@@ -74,19 +74,19 @@ python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output
 
 ```bash
 # 限速
-./scripts/tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
+./tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
 
 # 实时监控
-./scripts/tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues --log-file ./tm.tsv
+./tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues --log-file ./tm.tsv
 
 # 重置所有端口
-./scripts/tm_shape_queue.sh reset
+./tm_shape_queue.sh reset
 ```
 
 ### 2. `gen_experiment.py` - 实验脚本生成器
 
 ```bash
-python3 ./gen_experiment.py --config I --out-dir ./scripts/ --log-dir ./exp_logs
+python3 ./gen_experiment.py --config I --out-dir ./ --log-dir ./exp_logs
 ```
 
 **实验配置 (Table 2)**:
@@ -113,7 +113,7 @@ python3 ./gen_experiment.py --config I --out-dir ./scripts/ --log-dir ./exp_logs
 ### 3. `visualize_tm_queue.py` - TM 队列数据可视化
 
 ```bash
-python3 ./scripts/visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
+python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
 ```
 
 **支持的指标**：`queue_usage`, `queue_wm`, `drop_rate`, `rate`, `all`, `detailed`
@@ -123,7 +123,7 @@ python3 ./scripts/visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output 
 利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
 
 ```bash
-python3 ./scripts/tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
 ```
 
 ### 5. `visualize_tcp_metrics.py` - TCP 指标可视化
@@ -131,7 +131,7 @@ python3 ./scripts/tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 
 针对 `tcp_metrics_collector.py` 生成的 CSV 数据进行优化可视化，支持大规模数据点。
 
 ```bash
-python3 ./scripts/visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
+python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 ```
 
 ### 6. 辅助脚本
