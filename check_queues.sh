@@ -30,7 +30,7 @@ EOF
 
 PIPE=1
 DEV_PORT=""
-SDE_BASE="~/bf-sde-9.13.0"
+SDE_BASE="/root/bf-sde-9.13.0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
