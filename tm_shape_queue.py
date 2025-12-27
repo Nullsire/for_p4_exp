@@ -11,26 +11,43 @@ class TeeWriter:
         self.log_file = None
         self.log_path = log_file
         if log_file:
+            import os
+            # Ensure parent directory exists
+            parent_dir = os.path.dirname(log_file)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
             mode = "a" if append else "w"
-            self.log_file = open(log_file, mode, encoding="utf-8", buffering=1)
-            # Write header with timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log started at {timestamp}\n")
-            self.log_file.write(f"# Log file: {log_file}\n")
+            try:
+                self.log_file = open(log_file, mode, encoding="utf-8", buffering=1)
+                # Write header with timestamp
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.log_file.write(f"# Log started at {timestamp}\n")
+                self.log_file.write(f"# Log file: {log_file}\n")
+                self.log_file.flush()
+            except Exception as e:
+                print(f"WARNING: Failed to open log file '{log_file}': {e}")
+                self.log_file = None
     
     def write(self, msg):
         """Write message to both stdout and log file."""
         print(msg)
         if self.log_file:
-            self.log_file.write(msg + "\n")
-            self.log_file.flush()
+            try:
+                self.log_file.write(msg + "\n")
+                self.log_file.flush()
+            except Exception as e:
+                print(f"WARNING: Failed to write to log file: {e}")
     
     def close(self):
         """Close log file and write footer."""
         if self.log_file:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.log_file.write(f"# Log ended at {timestamp}\n")
-            self.log_file.close()
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.log_file.write(f"# Log ended at {timestamp}\n")
+                self.log_file.flush()
+                self.log_file.close()
+            except Exception as e:
+                print(f"WARNING: Failed to close log file: {e}")
             self.log_file = None
 
 
@@ -139,6 +156,12 @@ def main() -> None:
     parser.add_argument("--max-gbps", type=float, default=None)
     parser.add_argument("--max-mbps", type=float, default=None)
     parser.add_argument("--max-bps", type=int, default=None)
+    parser.add_argument(
+        "--max-burst-size",
+        type=int,
+        default=None,
+        help="Maximum burst size in bytes for traffic shaping (default: auto-calculated by TM)",
+    )
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--iterations", type=int, default=None)
@@ -146,7 +169,7 @@ def main() -> None:
         "--log-file",
         type=str,
         default=None,
-        help="Path to save output log file. If not specified, output goes to stdout only.",
+        help="Path to save output log file (TSV format). If not specified, output goes to stdout only.",
     )
     parser.add_argument(
         "--log-append",
@@ -337,17 +360,22 @@ def main() -> None:
         if egress_qids:
             _output(f"Egress qid map (qid for queue 0-7): {egress_qids[:8]}")
         _output(f"Target max_rate: {max_bps} bps (tm units={max_rate_units})")
+        if args.max_burst_size is not None:
+            _output(f"Target max_burst_size: {args.max_burst_size} bytes")
         _output(f"Current sched_cfg: {cur_cfg}")
         _output(f"Current sched_shaping: {cur_shaping}")
 
         if scope == "port":
             port_sched_cfg.mod(dev_port=dev_port, max_rate_enable=True)
-            port_sched_shaping.mod(
-                dev_port=dev_port,
-                unit="BPS",
-                provisioning="UPPER",
-                max_rate=max_rate_units,
-            )
+            shaping_params = {
+                "dev_port": dev_port,
+                "unit": "BPS",
+                "provisioning": "UPPER",
+                "max_rate": max_rate_units,
+            }
+            if args.max_burst_size is not None:
+                shaping_params["max_burst_size"] = args.max_burst_size
+            port_sched_shaping.mod(**shaping_params)
         else:
             queue_sched_cfg.mod(
                 pg_id=pg_id,
@@ -356,13 +384,16 @@ def main() -> None:
                 # Only enable shaping so we don't override settings from the C control plane.
                 max_rate_enable=True,
             )
-            queue_sched_shaping.mod(
-                pg_id=pg_id,
-                pg_queue=pg_queue,
-                unit="BPS",
-                provisioning="UPPER",
-                max_rate=max_rate_units,
-            )
+            shaping_params = {
+                "pg_id": pg_id,
+                "pg_queue": pg_queue,
+                "unit": "BPS",
+                "provisioning": "UPPER",
+                "max_rate": max_rate_units,
+            }
+            if args.max_burst_size is not None:
+                shaping_params["max_burst_size"] = args.max_burst_size
+            queue_sched_shaping.mod(**shaping_params)
 
         if scope == "port":
             new_cfg = _entry_raw(port_sched_cfg.get(dev_port=dev_port, from_hw=True, print_ents=False))

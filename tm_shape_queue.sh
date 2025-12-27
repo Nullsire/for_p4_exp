@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  tm_shape_queue.sh apply  --dev-port 189 [--queue 0] --max-gbps 1 [--sde /root/bf-sde-9.13.0]
+  tm_shape_queue.sh apply  --dev-port 189 [--queue 0] --max-gbps 1 [--max-burst-size 16384] [--sde /root/bf-sde-9.13.0]
   tm_shape_queue.sh reset  [--dev-port 189] [--queue 0]   # Without --dev-port: reset ALL ports
   tm_shape_queue.sh watch  --dev-port 189 [--queue 0] [--interval 1] [--duration 30 | --iterations 60] [--log-file /path/to/log.tsv]
 
@@ -12,16 +12,26 @@ Logging:
   --log-file <PATH>   Save output to specified file (in addition to stdout)
   --log-append        Append to log file instead of overwriting
 
+Shaping Options:
+  --max-gbps <RATE>       Maximum rate in Gbps
+  --max-mbps <RATE>       Maximum rate in Mbps
+  --max-bps <RATE>        Maximum rate in bps
+  --max-burst-size <SIZE> Maximum burst size in bytes (default: auto-calculated by TM)
+
 Notes:
 - pg_id is derived from `tf1.tm.port.cfg` (do not assume pg_id = dev_port % 128).
 - Shaping can be applied at TM port or TM queue scope; default is port scope.
 - Rate encoding: this SDE build uses unit="BPS" with values in ~1kbps units.
 - Shaping/counters reset when `bf_switchd` (or `contrl_test`) restarts; re-run `apply` after a restart.
 - Queue depth configuration is NOT supported via BFRT in this SDE version.
+- max_burst_size controls the token bucket burst size for traffic shaping.
 
 Examples:
   # Limit dev_port 189 queue0 to 1Gbps
   ./tm_shape_queue.sh apply --dev-port 189 --queue 0 --max-gbps 1
+
+  # Limit dev_port 189 to 1Gbps with 16KB burst size
+  ./tm_shape_queue.sh apply --dev-port 189 --max-gbps 1 --max-burst-size 16384
 
   # Watch counters for 30s
   ./tm_shape_queue.sh watch --dev-port 189 --queue 0 --duration 30 --interval 1
@@ -45,6 +55,7 @@ CLEAR_COUNTERS=0
 MAX_GBPS=""
 MAX_MBPS=""
 MAX_BPS=""
+MAX_BURST_SIZE=""
 INTERVAL="1"
 DURATION=""
 ITERATIONS=""
@@ -62,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --max-gbps) MAX_GBPS="$2"; shift 2;;
     --max-mbps) MAX_MBPS="$2"; shift 2;;
     --max-bps) MAX_BPS="$2"; shift 2;;
+    --max-burst-size) MAX_BURST_SIZE="$2"; shift 2;;
     --interval) INTERVAL="$2"; shift 2;;
     --duration) DURATION="$2"; shift 2;;
     --iterations) ITERATIONS="$2"; shift 2;;
@@ -174,6 +186,9 @@ rm -f "$BOOT"
   fi
   if [[ -n "$MAX_BPS" ]]; then
     echo "sys.argv += ['--max-bps', '$MAX_BPS']"
+  fi
+  if [[ -n "$MAX_BURST_SIZE" ]]; then
+    echo "sys.argv += ['--max-burst-size', '$MAX_BURST_SIZE']"
   fi
   if [[ -n "$LOG_FILE" ]]; then
     echo "sys.argv += ['--log-file', '$LOG_FILE']"
