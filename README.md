@@ -11,7 +11,7 @@
 ### 1. 实验拓扑
 
 ```
-[Sender Host](192.168.5.2 ) ---> Tofino Switch(dev_port 189) ---> [Receiver Host](192.168.6.2)
+[Sender Host](192.168.5.2) ---> Tofino Switch(dev_port 189) ---> [Receiver Host](192.168.6.2)
 ```
 
 ### 2. 启动交换机程序
@@ -38,7 +38,7 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_
 
 生成的脚本：
 - `run_sender_confI.sh` - 发送端脚本
-- `run_receiver_confI.sh` - 接收端脚本（含 JSON 日志记录）
+- `run_receiver_confI.sh` - 接收端脚本
 
 ### 5. 运行实验
 
@@ -141,6 +141,21 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 
 ### 6. 辅助脚本
 
+- `bfrt_explore.sh` - 探索 BFRT API 所有可用接口
+   ```bash
+   # 探索所有 BFRT 接口
+   ./bfrt_explore.sh
+   
+   # 过滤 TM 相关的表
+   ./bfrt_explore.sh --filter tm
+   
+   # 仅列出所有表
+   ./bfrt_explore.sh --list-tables
+   
+   # 使用自定义 SDE 路径
+   ./bfrt_explore.sh --sde /custom/path/bf-sde-9.13.0
+   ```
+
 - `check_queues.sh` - 扫描端口，显示端口计数器、限速配置
    ```bash
    # 扫描 Pipe 1 (ports 128-255)
@@ -158,16 +173,7 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 ## ❓ 常见问题
 
 1. **`could not initialize bf_rt ... err: 1`**
-   - 确保已运行 `./contrl_test` 或 `run_switchd.sh`
+   - 确保已运行 `./contrl_test`
 
 2. **重启程序后限速失效**
    - 重新运行 `apply` 命令
-
-3. **队列深度配置**
-    - 本 SDE 版本（bf-sde-9.13.0）的 BFRT API 不支持设置队列深度
-    - `tf1.tm.queue.cfg` 表只有 `mirror_drop_destination` 和 `pfc_cos` 字段
-    - 如需配置队列深度，请参考 SDE 文档使用控制平面 C 代码或其他方式
-    - 可以使用 `bfshell` 的 `info` 命令查询可用的配置字段：
-      ```bash
-      bfshell -c "info tf1.tm.queue.cfg"
-      ```
