@@ -89,7 +89,7 @@ def _get_pg_mapping(tf1, dev_port: int) -> tuple[int, int, list[int]]:
     def _get(name: str, default):
         bname = name.encode("utf-8")
         return data.get(bname, default)
-
+    
     pg_id = int(_get("pg_id", -1))
     pg_port_nr = int(_get("pg_port_nr", -1))
     egress_qids = list(_get("egress_qid_queues", []))
@@ -114,7 +114,7 @@ def _map_queue_key(local_queue: int, egress_qids: list[int]) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Configure Tofino1 TM queue shaping and watch counters via bfshell/bfrt_python"
+        description="Configure Tofino1 TM queue shaping, queue depth, and watch counters via bfshell/bfrt_python"
     )
     parser.add_argument(
         "--scope",
@@ -137,7 +137,6 @@ def main() -> None:
     )
     parser.add_argument("--max-gbps", type=float, default=None)
     parser.add_argument("--max-mbps", type=float, default=None)
-    parser.add_argument("--max-bps", type=int, default=None)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--iterations", type=int, default=None)
@@ -165,7 +164,8 @@ def main() -> None:
 
     # For reset mode without dev_port, we reset all ports
     if mode == "reset" and dev_port is None:
-        _output("Resetting shaping for ALL ports (Pipe 0: 0-127, Pipe 1: 128-255)...")
+        reset_msg = "Resetting shaping"
+        _output(f"{reset_msg} for ALL ports (Pipe 0: 0-127, Pipe 1: 128-255)...")
         
         root = _get_root()
         tf1 = getattr(root, "tf1", globals().get("tf1"))
@@ -174,6 +174,7 @@ def main() -> None:
         
         port_sched_cfg = tf1.tm.port.sched_cfg
         queue_sched_cfg = tf1.tm.queue.sched_cfg
+        queue_cfg = tf1.tm.queue.cfg
         
         reset_count = 0
         skipped_count = 0
@@ -243,7 +244,7 @@ def main() -> None:
         _writer.close()
         return
 
-    # For apply/watch/reset with specific port, dev_port is required
+    # For apply/watch with specific port, dev_port is required
     if dev_port is None:
         raise SystemExit("--dev-port is required for apply/watch mode, or reset with specific port")
 
@@ -272,6 +273,7 @@ def main() -> None:
     port_sched_shaping = tf1.tm.port.sched_shaping
     queue_sched_cfg = tf1.tm.queue.sched_cfg
     queue_sched_shaping = tf1.tm.queue.sched_shaping
+    queue_cfg = tf1.tm.queue.cfg
     port_stat = port.port_stat
 
     if mode == "apply":
@@ -342,29 +344,6 @@ def main() -> None:
             )
         _output(f"New sched_cfg: {new_cfg}")
         _output(f"New sched_shaping: {new_shaping}")
-        _writer.close()
-        return
-
-    if mode == "reset":
-        _output(
-            f"Resetting shaping scope={scope} on dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr}) queue={pg_queue}"
-        )
-        
-        if scope == "port":
-            port_sched_cfg.mod(dev_port=dev_port, max_rate_enable=False)
-            new_cfg = _entry_raw(port_sched_cfg.get(dev_port=dev_port, from_hw=True, print_ents=False))
-        else:
-            qkey = _map_queue_key(pg_queue, egress_qids)
-            queue_sched_cfg.mod(
-                pg_id=pg_id,
-                pg_queue=qkey,
-                # Do NOT touch scheduler configuration (priority/algorithm).
-                # Only disable shaping so we don't override settings from the C control plane.
-                max_rate_enable=False,
-            )
-            new_cfg = _entry_raw(queue_sched_cfg.get(pg_id=pg_id, pg_queue=qkey, from_hw=True, print_ents=False))
-        
-        _output(f"New sched_cfg: {new_cfg}")
         _writer.close()
         return
 
@@ -457,10 +436,10 @@ def main() -> None:
             else:
                 d_q_drop = max(0, q_drop - prev_q_drops[0])
                 prev_q_drops = [q_drop]
+
             _output(
                 f"{now:.3f}	{dev_port}	{pg_queue}	"
                 f"{eg_drop}	{d_eg_drop}	{eg.get('usage_cells', 0)}	{eg.get('watermark_cells', 0)}	"
-                f"{q_drop}	{d_q_drop}	{q.get('usage_cells', 0)}	{q.get('watermark_cells', 0)}	"
                 f"{ps.get('$RX_RATE', 0)}	{ps.get('$TX_RATE', 0)}"
             )
 

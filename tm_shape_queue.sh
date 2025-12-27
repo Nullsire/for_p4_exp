@@ -17,19 +17,20 @@ Notes:
 - Shaping can be applied at TM port or TM queue scope; default is port scope.
 - Rate encoding: this SDE build uses unit="BPS" with values in ~1kbps units.
 - Shaping/counters reset when `bf_switchd` (or `contrl_test`) restarts; re-run `apply` after a restart.
+- Queue depth configuration is NOT supported via BFRT in this SDE version.
 
 Examples:
   # Limit dev_port 189 queue0 to 1Gbps
-  ./scripts/tm_shape_queue.sh apply --dev-port 189 --queue 0 --max-gbps 1
+  ./tm_shape_queue.sh apply --dev-port 189 --queue 0 --max-gbps 1
 
   # Watch counters for 30s
-  ./scripts/tm_shape_queue.sh watch --dev-port 189 --queue 0 --duration 30 --interval 1
+  ./tm_shape_queue.sh watch --dev-port 189 --queue 0 --duration 30 --interval 1
 
   # Remove the max-rate cap for a specific port
-  ./scripts/tm_shape_queue.sh reset --dev-port 189 --queue 0
+  ./tm_shape_queue.sh reset --dev-port 189 --queue 0
 
   # Reset ALL ports shaping (recommended before ending experiment)
-  ./scripts/tm_shape_queue.sh reset
+  ./tm_shape_queue.sh reset
 EOF
 }
 

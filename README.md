@@ -1,6 +1,8 @@
 # Tofino Traffic Manager 实验：限速与监控
 
-本项目包含一组用于在 Tofino 交换机上进行流量管理（Traffic Manager, TM）实验的脚本。主要功能包括：在 egress 端口或队列上施加限速（Shaping），并实时观测队列堆积、水位（Watermark）以及丢包（Drops）情况。
+本项目包含一组用于在 Tofino 交换机上进行流量管理（Traffic Manager, TM）实验的脚本。主要功能包括：在 egress 端口或队列上施加限速（Shaping）、实时观测队列堆积、水位（Watermark）以及丢包（Drops）情况。
+
+**注意**：本 SDE 版本（bf-sde-9.13.0）的 BFRT API 不支持设置队列深度（Queue Depth）。队列深度配置需要通过其他方式（如控制平面 C 代码）实现。
 
 ---
 
@@ -63,6 +65,7 @@ python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output
 ### 7. 实验清理
 
 ```bash
+# 重置所有端口的限速
 ./tm_shape_queue.sh reset
 ```
 
@@ -79,9 +82,11 @@ python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output
 # 实时监控
 ./tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues --log-file ./tm.tsv
 
-# 重置所有端口
+# 重置所有端口的限速
 ./tm_shape_queue.sh reset
 ```
+
+**注意**：本 SDE 版本不支持通过 BFRT API 设置队列深度。
 
 ### 2. `gen_experiment.py` - 实验脚本生成器
 
@@ -136,9 +141,17 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 
 ### 6. 辅助脚本
 
-- `check_queues.sh` - 扫描所有端口，显示有拥塞/丢包的端口
-- `scan_valid_pg_ids.py` - 诊断 dev_port 到 pg_id 的映射
-- `read_qdelay.py` - 读取特定寄存器的 qdelay 值
+- `check_queues.sh` - 扫描端口，显示端口计数器、限速配置
+   ```bash
+   # 扫描 Pipe 1 (ports 128-255)
+   ./check_queues.sh
+   
+   # 扫描 Pipe 0 (ports 0-127)
+   ./check_queues.sh --pipe 0
+   
+   # 查询特定端口
+   ./check_queues.sh --dev-port 189
+   ```
 
 ---
 
@@ -149,3 +162,12 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 
 2. **重启程序后限速失效**
    - 重新运行 `apply` 命令
+
+3. **队列深度配置**
+    - 本 SDE 版本（bf-sde-9.13.0）的 BFRT API 不支持设置队列深度
+    - `tf1.tm.queue.cfg` 表只有 `mirror_drop_destination` 和 `pfc_cos` 字段
+    - 如需配置队列深度，请参考 SDE 文档使用控制平面 C 代码或其他方式
+    - 可以使用 `bfshell` 的 `info` 命令查询可用的配置字段：
+      ```bash
+      bfshell -c "info tf1.tm.queue.cfg"
+      ```
