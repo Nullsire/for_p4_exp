@@ -72,8 +72,9 @@ def _get_port_stat(port_stat_table, dev_port: int) -> dict[str, int]:
 
 
 def _rate_to_tm_units_bps(rate_bps: int) -> int:
-    # Empirically on this platform/SDE, `unit == "BPS"` is encoded in 1kbps units.
-    # Example: default max_rate ~= 10,003,999 corresponds to ~10Gbps.
+    # The TM API with unit="BPS" actually uses kbps (kilobits per second) internally.
+    # Evidence: default max_rate ~= 10,003,999 corresponds to ~10Gbps on a 10G port.
+    # So we need to divide the input bps by 1000 to convert to kbps.
     return max(0, int(rate_bps // 1_000))
 
 
@@ -276,6 +277,36 @@ def main() -> None:
     queue_sched_shaping = tf1.tm.queue.sched_shaping
     queue_cfg = tf1.tm.queue.cfg
     port_stat = port.port_stat
+
+    # Handle reset for a specific port
+    if mode == "reset":
+        _output(f"Resetting shaping for dev_port={dev_port} (pipe={pipe}, pg_id={pg_id}, pg_port_nr={pg_port_nr})")
+        
+        if scope == "port":
+            # Reset port-level shaping
+            port_sched_cfg.mod(dev_port=dev_port, max_rate_enable=False)
+            _output(f"Port shaping disabled for dev_port={dev_port}")
+        else:
+            # Reset queue-level shaping for all 8 queues
+            for q in range(8):
+                try:
+                    qkey = _map_queue_key(q, egress_qids)
+                    queue_sched_cfg.mod(
+                        pg_id=pg_id,
+                        pg_queue=qkey,
+                        max_rate_enable=False,
+                    )
+                except Exception:
+                    pass
+            _output(f"Queue shaping disabled for all queues on dev_port={dev_port}")
+        
+        # Show the new configuration
+        new_cfg = _entry_raw(port_sched_cfg.get(dev_port=dev_port, from_hw=True, print_ents=False))
+        new_shaping = _entry_raw(port_sched_shaping.get(dev_port=dev_port, from_hw=True, print_ents=False))
+        _output(f"New sched_cfg: {new_cfg}")
+        _output(f"New sched_shaping: {new_shaping}")
+        _writer.close()
+        return
 
     if mode == "apply":
         max_bps = args.max_bps

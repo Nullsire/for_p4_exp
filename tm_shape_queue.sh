@@ -142,6 +142,8 @@ fi
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 
 BOOT=/tmp/tm_shape_queue_bootstrap.py
+# Remove old bootstrap file to avoid permission issues
+rm -f "$BOOT"
 {
   echo "import sys"
   echo "path = r\"$SCRIPT_DIR/tm_shape_queue.py\""
