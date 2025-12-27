@@ -137,6 +137,7 @@ def main() -> None:
     )
     parser.add_argument("--max-gbps", type=float, default=None)
     parser.add_argument("--max-mbps", type=float, default=None)
+    parser.add_argument("--max-bps", type=int, default=None)
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--duration", type=float, default=None)
     parser.add_argument("--iterations", type=int, default=None)
