@@ -12,9 +12,9 @@ from concurrent.futures import ProcessPoolExecutor
 def plot_single_metric_optimized(args):
     """
     Worker function to plot a single metric using LineCollection for speed.
-    args: (df_subset, metric_col, ylabel, title, filename, output_dir, palette)
+    args: (df_subset, metric_col, ylabel, title, filename, output_dir, palette, use_log_scale)
     """
-    df, metric_col, ylabel, title, filename, output_dir, palette = args
+    df, metric_col, ylabel, title, filename, output_dir, palette, use_log_scale = args
     
     print(f"Starting plot: {title}")
     start_time = time.time()
@@ -42,32 +42,27 @@ def plot_single_metric_optimized(args):
             points = np.column_stack((flow_data['time_sec'].values, flow_data[metric_col].values))
             segments.append(points)
             
-        # Create LineCollection
+        # Create LineCollection with solid lines (alpha=1.0)
         lc = mcoll.LineCollection(
-            segments, 
+            segments,
             colors=[color] * len(segments),
             linewidths=0.5,
-            alpha=0.1, # Very faint
+            alpha=1.0,  # Solid lines
             zorder=1,
+            label=f"{flow_type.capitalize()}",
             rasterized=True # Important for performance when saving vector formats, keeps file size down
         )
         ax.add_collection(lc)
-        
-    # 2. Plot Mean Trend (Solid, Thick line)
-    # We calculate the mean manually to avoid Seaborn's overhead on large data
-    # Binning by 100ms for the mean line is sufficient and smooth
-    df['time_bin'] = df['time_sec'].round(1)
-    mean_df = df.groupby(['time_bin', 'flow_type'])[metric_col].mean().reset_index()
-    
-    for flow_type, color in palette.items():
-        subset = mean_df[mean_df['flow_type'] == flow_type]
-        ax.plot(subset['time_bin'], subset[metric_col], color=color, linewidth=2.5, label=f"{flow_type.capitalize()} (Mean)", zorder=2)
 
     ax.set_title(title, fontsize=16)
     ax.set_xlabel('Time (s)', fontsize=12)
     ax.set_ylabel(ylabel, fontsize=12)
     ax.legend(loc='upper right')
     ax.grid(True, alpha=0.3)
+    
+    # Apply log scale if requested
+    if use_log_scale:
+        ax.set_yscale('log')
     
     # Auto-scale axes since add_collection doesn't do it automatically
     ax.autoscale_view()
@@ -110,7 +105,10 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     start_time = df['timestamp_ns'].min()
     df['time_sec'] = (df['timestamp_ns'] - start_time) / 1e9
     
-    # Pre-calculate delivery rate in Mbps
+    # Pre-calculate RTT in ms (from us)
+    df['rtt_ms'] = df['rtt_us'] / 1000.0
+    
+    # Pre-calculate delivery rate in Mbps (from bps)
     df['delivery_rate_mbps'] = df['delivery_rate_bps'] / 1e6
     
     # Sort by flow_id and time for correct line segments
@@ -125,10 +123,10 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     # Optimization: Pass only the relevant columns for each task.
     
     tasks = [
-        (df[['time_sec', 'flow_type', 'flow_id', 'rtt_us']].copy(), 'rtt_us', 'RTT (us)', 'RTT over Time (Full Resolution)', 'rtt_over_time_opt.png', output_dir, palette),
-        (df[['time_sec', 'flow_type', 'flow_id', 'cwnd']].copy(), 'cwnd', 'CWND (segments)', 'Congestion Window over Time (Full Resolution)', 'cwnd_over_time_opt.png', output_dir, palette),
-        (df[['time_sec', 'flow_type', 'flow_id', 'delivery_rate_mbps']].copy(), 'delivery_rate_mbps', 'Delivery Rate (Mbps)', 'Delivery Rate over Time (Full Resolution)', 'delivery_rate_over_time_opt.png', output_dir, palette),
-        (df[['time_sec', 'flow_type', 'flow_id', 'retrans']].copy(), 'retrans', 'Cumulative Retransmits', 'Retransmits over Time (Full Resolution)', 'retransmits_over_time_opt.png', output_dir, palette)
+        (df[['time_sec', 'flow_type', 'flow_id', 'rtt_ms']].copy(), 'rtt_ms', 'RTT (ms)', 'RTT over Time (Full Resolution)', 'rtt_over_time_opt.png', output_dir, palette, False),
+        (df[['time_sec', 'flow_type', 'flow_id', 'cwnd']].copy(), 'cwnd', 'CWND (segments)', 'Congestion Window over Time (Full Resolution)', 'cwnd_over_time_opt.png', output_dir, palette, False),
+        (df[['time_sec', 'flow_type', 'flow_id', 'delivery_rate_mbps']].copy(), 'delivery_rate_mbps', 'Delivery Rate (Mbps)', 'Delivery Rate over Time (Full Resolution)', 'delivery_rate_over_time_opt.png', output_dir, palette, True),
+        (df[['time_sec', 'flow_type', 'flow_id', 'retrans']].copy(), 'retrans', 'Cumulative Retransmits', 'Retransmits over Time (Full Resolution)', 'retransmits_over_time_opt.png', output_dir, palette, False)
     ]
     
     print(f"Starting parallel plotting of {len(tasks)} charts...")
