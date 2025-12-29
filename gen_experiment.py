@@ -218,7 +218,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate iRED experiment scripts (Sender/Receiver)")
     parser.add_argument("--config", required=True, choices=CONFIGS.keys(), help="Configuration ID (I-XII) from Table 2")
     parser.add_argument("--sender-if", default="enp2s0", help="Sender interface name")
-    parser.add_argument("--receiver-if", default="enp2s0", help="Receiver interface name")
+    parser.add_argument("--receiver-if", default="enx00e04c680019", help="Receiver interface name")
     parser.add_argument("--receiver-ip", default="192.168.6.2", help="Receiver IP address (for sender to connect to)")
     parser.add_argument("--receiver-bind-ip", default="0.0.0.0", help="IP address for iperf3 server to bind to (default: 0.0.0.0 for all interfaces)")
     parser.add_argument("--out-dir", default=".", help="Output directory for generated scripts")

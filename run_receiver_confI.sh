@@ -74,11 +74,31 @@ echo ''
 
 # Show connection count every 10 seconds
 while true; do
-  # Count active iperf3 flows (not TCP connections)
-  # iperf3 creates 2 TCP connections per flow (control + data)
-  # So we count unique server-side ports (sport) in the 5201-5250 range
-  # Use awk to find the local address column and extract port after last colon
-  FLOW_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | awk 'NR>1 {for(i=1;i<=NF;i++){if($i ~ /^192\.168\.6\.[0-9]+:52[0-5][0-9]$/){n=split($i,a,":"); print a[n]}}}' | sort -u | wc -l)
+  # Count active iperf3 flows
+  # Each iperf3 flow uses one unique server port (5201-5250)
+  # iperf3 creates 2 TCP connections per flow (control + data), both on the same server port
+  # So we count unique server-side ports (sport) with established connections
+  #
+  # Expected flow progression: 2 -> 4 -> 20 -> 50
+  # Phase 1: 1 Cubic (port 5201) + 1 Prague (port 5226) = 2 flows
+  # Phase 2: +1 Cubic (port 5202) + 1 Prague (port 5227) = 4 flows
+  # Phase 3: +8 Cubic (ports 5203-5210) + 8 Prague (ports 5228-5235) = 20 flows
+  # Phase 4: +15 Cubic (ports 5211-5225) + 15 Prague (ports 5236-5250) = 50 flows
+  #
+  # ss output format: "State Recv-Q Send-Q Local Address:Port Peer Address:Port"
+  # We use the ss filter to get only connections on ports 5201-5250
+  # Then count unique local ports (the 4th column contains Local Address:Port)
+  FLOW_COUNT=$(ss -tn state established '( sport >= 5201 and sport <= 5250 )' 2>/dev/null | \
+    awk 'NR>1 {
+      # The 4th column is Local Address:Port (e.g., "192.168.6.2:5201")
+      # Extract the port number after the last colon
+      n = split($4, parts, ":")
+      port = parts[n]
+      # Validate port is in our range
+      if (port >= 5201 && port <= 5250) {
+        print port
+      }
+    }' | sort -u | wc -l)
   echo "[$(date '+%H:%M:%S')] Active iperf3 flows: $FLOW_COUNT"
   sleep 10
 done

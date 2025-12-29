@@ -33,7 +33,7 @@ make
 ### 4. 生成实验脚本
 
 ```bash
-python3 ./gen_experiment.py --config I --out-dir ./exp_
+python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 ```
 
 生成的脚本：
