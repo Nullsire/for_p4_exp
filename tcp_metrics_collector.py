@@ -479,7 +479,7 @@ class RealTimePlotter:
             for fid in unique_flow_ids:
                 flow_mask = (flow_type == ft) & (flow_id == fid)
                 ax.plot(time_sec[flow_mask], values[flow_mask],
-                       color=color, linewidth=0.5, alpha=0.7, label=f"{ft}" if fid == unique_flow_ids[0] else "")
+                       color=color, linewidth=0.5, alpha=0.8, label=f"{ft}" if fid == unique_flow_ids[0] else "")
         
         ax.set_title(title, fontsize=16)
         ax.set_xlabel('Time (s)', fontsize=12)

@@ -42,12 +42,12 @@ def plot_single_metric_optimized(args):
             points = np.column_stack((flow_data['time_sec'].values, flow_data[metric_col].values))
             segments.append(points)
             
-        # Create LineCollection with solid lines (alpha=1.0)
+        # Create LineCollection with semi-transparent lines (alpha=0.8)
         lc = mcoll.LineCollection(
             segments,
             colors=[color] * len(segments),
             linewidths=0.5,
-            alpha=1.0,  # Solid lines
+            alpha=0.8,  # Semi-transparent lines
             zorder=1,
             label=f"{flow_type.capitalize()}",
             rasterized=True # Important for performance when saving vector formats, keeps file size down

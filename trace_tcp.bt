@@ -1,0 +1,55 @@
+#include <net/sock.h>
+#include <net/tcp.h>
+
+BEGIN
+{
+    // CSV Header
+    printf("timestamp_ns,local_port,remote_port,state,flow_type,flow_id,cwnd,rtt_us,rtt_var_us,retrans,lost,delivery_rate_bps\n");
+}
+
+kprobe:tcp_rcv_established
+{
+    $sk = (struct sock *)arg0;
+    $tp = (struct tcp_sock *)$sk;
+    $inet = (struct inet_sock *)$sk;
+
+    // 获取端口 (处理大小端)
+    // 如果你的环境支持 bswap，这里也可以写 $lport = bswap($inet->inet_sport);
+    $lport_be = $inet->inet_sport;
+    $rport_be = $inet->inet_dport;
+    $lport = ($lport_be >> 8) | (($lport_be & 0xff) << 8);
+    $rport = ($rport_be >> 8) | (($rport_be & 0xff) << 8);
+    
+    // --- 端口范围判断逻辑 ---
+    $type = 0; // 0: unknown, 1: cubic, 2: prague
+
+    // Cubic: 5201 - 5225
+    if (($lport >= 5201 && $lport <= 5225) || ($rport >= 5201 && $rport <= 5225)) {
+        $type = 1;
+    }
+    // Prague: 5226 - 5250
+    else if (($lport >= 5226 && $lport <= 5250) || ($rport >= 5226 && $rport <= 5250)) {
+        $type = 2;
+    }
+
+    // 只记录目标范围内的流
+    if ($type != 0) {
+        $flow_type = ($type == 1) ? "cubic" : "prague";
+        $state = $sk->__sk_common.skc_state;
+
+        printf("%llu,%d,%d,%d,%s,%s_%d_%d,%d,%d,%d,%d,%d,%lu\n",
+            nsecs,
+            $lport, 
+            $rport,
+            $state,
+            $flow_type,
+            $flow_type, $lport, $rport,
+            $tp->snd_cwnd,               // cwnd (segments)
+            $tp->srtt_us >> 3,           // rtt_us (micro-seconds)
+            $tp->mdev_us >> 2,           // rtt_var_us (micro-seconds)
+            $tp->total_retrans,          // retrans (count)
+            $tp->lost,                   // lost (count)
+            $tp->rate_delivered * 8      // <--- 关键修正: Bytes/s -> bits/s
+        );
+    }
+}
