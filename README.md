@@ -101,13 +101,13 @@ python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metri
 
 ```bash
 # 基础采集（仅 CSV）
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --output tcp_metrics.csv
 
 # 采集 + 实时绘图
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv --plot --verbose
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --output tcp_metrics.csv --plot --verbose
 
 # 自定义绘图参数
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
 ```
 
 **CSV 输出列**：
@@ -137,13 +137,72 @@ python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --durati
 
 ### 4. `visualize_tcp_metrics.py` - TCP 指标可视化
 
-针对 `tcp_metrics_collector.py` 生成的 CSV 数据进行优化可视化，支持大规模数据点。
+针对 TCP 指标 CSV 数据进行优化可视化，支持大规模数据点。兼容以下两种数据源：
+
+1. **tcp_metrics_collector.py** 生成的 CSV 文件
+2. **bpftrace** 生成的 CSV 文件（使用 `trace_tcp.bt`）
 
 ```bash
+# 可视化 tcp_metrics_collector.py 生成的数据
+python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output ./exp_logs_I/plots
+
+# 可视化 bpftrace 生成的数据
+sudo bpftrace trace_tcp.bt > tcp_metrics.csv
 python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 ```
 
-### 5. 辅助脚本
+**CSV 格式兼容性**：
+- `tcp_metrics_collector.py` 和 `trace_tcp.bt` 生成的 CSV 文件格式完全一致
+- CSV 列：`timestamp_ns, local_port, remote_port, state, flow_type, flow_id, cwnd, rtt_us, rtt_var_us, retrans, lost, delivery_rate_bps`
+- `visualize_tcp_metrics.py` 自动读取所需列进行可视化
+
+生成的图表：
+- RTT over Time (Full Resolution)
+- Congestion Window over Time (Full Resolution)
+- Delivery Rate over Time (Full Resolution, 对数坐标)
+- Retransmits over Time (Full Resolution)
+
+### 5. `trace_tcp.bt` - BPFtrace TCP 指标采集
+
+使用 BPFtrace 直接从内核采集 TCP 指标，提供另一种高精度数据采集方式。
+
+```bash
+# 运行 bpftrace 采集（需要 root 权限）
+sudo bpftrace trace_tcp.bt > tcp_metrics.csv
+
+# 可视化采集的数据
+python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
+```
+
+**端口范围识别**：
+- Cubic 流：端口 5201-5225
+- Prague 流：端口 5226-5250
+
+**采集指标**：
+- `timestamp_ns` - 纳秒时间戳
+- `local_port` - 本地端口号
+- `remote_port` - 远程端口号
+- `state` - TCP 连接状态
+- `flow_type` - 流类型（cubic, prague）
+- `flow_id` - 唯一流标识符
+- `cwnd` - 拥塞窗口（段数）
+- `rtt_us` - RTT（微秒）
+- `rtt_var_us` - RTT 方差（微秒）
+- `retrans` - 重传计数
+- `lost` - 丢包计数
+- `delivery_rate_bps` - 传输速率（比特/秒）
+
+**与 tcp_metrics_collector.py 的对比**：
+
+| 特性 | tcp_metrics_collector.py | trace_tcp.bt |
+|------|-------------------------|--------------|
+| 采集方式 | `ss` 命令 | BPFtrace 内核探针 |
+| 精度 | 毫秒级 | 纳秒级 |
+| 权限要求 | root/sudo | root/sudo |
+| 实时绘图 | 支持 | 不支持 |
+| CSV 格式 | 标准格式 | 完全兼容 |
+
+### 6. 辅助脚本
 
 - `bfrt_explore.sh` - 探索 BFRT API 所有可用接口
    ```bash
