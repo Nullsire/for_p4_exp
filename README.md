@@ -46,8 +46,6 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 2. **Sender 端**：运行 `run_sender_confI.sh`
 3. **Sender 端 (可选)**：运行 TCP 高精度采集器
    ```bash
-   # 采集 TCP 指标 (RTT, CWND 等) 到 tcp_metrics.csv
-   # 建议 duration 略长于实验时长一致 (例如 500s)
    python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv
    ```
 4. **交换机**：实时监控队列
@@ -58,14 +56,13 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 ### 6. 数据处理与可视化
 
 ```bash
-# 可视化 TCP 细粒度指标 (需先运行 tcp_metrics_collector.py)
+# 可视化 TCP 细粒度指标
 python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output ./exp_logs_I/plots
 ```
 
 ### 7. 实验清理
 
 ```bash
-# 重置所有端口的限速
 ./tm_shape_queue.sh reset
 ```
 
@@ -86,15 +83,52 @@ python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output
 ./tm_shape_queue.sh reset
 ```
 
-**注意**：本 SDE 版本不支持通过 BFRT API 设置队列深度。
-
-### 2. `gen_experiment.py` - 实验脚本生成器
+### 2. `visualize_tm_queue.py` - TM 队列数据可视化
 
 ```bash
-python3 ./gen_experiment.py --config I --out-dir ./ --log-dir ./exp_logs
+python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
 ```
 
-**实验配置 (Table 2)**:
+**支持的指标**：`queue_usage`, `queue_wm`, `drop_rate`, `rate`, `all`, `detailed`
+
+### 3. `tcp_metrics_collector.py` - TCP 高精度指标采集
+
+利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
+
+```bash
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
+```
+
+**支持的指标**：`goodput`, `bytes`, `retransmits`, `cwnd`, `rtt`, `rttvar`, `all`
+
+### 4. `visualize_tcp_metrics.py` - TCP 指标可视化
+
+针对 `tcp_metrics_collector.py` 生成的 CSV 数据进行优化可视化，支持大规模数据点。
+
+```bash
+python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
+```
+
+### 5. 辅助脚本
+
+- `bfrt_explore.sh` - 探索 BFRT API 所有可用接口
+   ```bash
+   ./bfrt_explore.sh                    # 探索所有 BFRT 接口
+   ./bfrt_explore.sh --filter tm        # 过滤 TM 相关的表
+   ./bfrt_explore.sh --list-tables      # 仅列出所有表
+   ./bfrt_explore.sh --sde /path/sde    # 使用自定义 SDE 路径
+   ```
+
+- `check_queues.sh` - 扫描端口，显示端口计数器、限速配置
+   ```bash
+   ./check_queues.sh                    # 扫描 Pipe 1 (ports 128-255)
+   ./check_queues.sh --pipe 0           # 扫描 Pipe 0 (ports 0-127)
+   ./check_queues.sh --dev-port 189     # 查询特定端口
+   ```
+
+---
+
+## 📊 实验配置 (Table 2)
 
 | Config | Bandwidth | RTT | MTU |
 |--------|-----------|-----|-----|
@@ -112,61 +146,6 @@ python3 ./gen_experiment.py --config I --out-dir ./ --log-dir ./exp_logs
 | XII | 1000 Mbps | 50ms | 400B |
 
 **负载阶段**：每阶段 120 秒，流数从 1 → 2 → 10 → 25 递增。
-
-**支持的指标**：`goodput`, `bytes`, `retransmits`, `cwnd`, `rtt`, `rttvar`, `all`
-
-### 3. `visualize_tm_queue.py` - TM 队列数据可视化
-
-```bash
-python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
-```
-
-**支持的指标**：`queue_usage`, `queue_wm`, `drop_rate`, `rate`, `all`, `detailed`
-
-### 4. `tcp_metrics_collector.py` - TCP 高精度指标采集
-
-利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
-
-```bash
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
-```
-
-### 5. `visualize_tcp_metrics.py` - TCP 指标可视化
-
-针对 `tcp_metrics_collector.py` 生成的 CSV 数据进行优化可视化，支持大规模数据点。
-
-```bash
-python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
-```
-
-### 6. 辅助脚本
-
-- `bfrt_explore.sh` - 探索 BFRT API 所有可用接口
-   ```bash
-   # 探索所有 BFRT 接口
-   ./bfrt_explore.sh
-   
-   # 过滤 TM 相关的表
-   ./bfrt_explore.sh --filter tm
-   
-   # 仅列出所有表
-   ./bfrt_explore.sh --list-tables
-   
-   # 使用自定义 SDE 路径
-   ./bfrt_explore.sh --sde /custom/path/bf-sde-9.13.0
-   ```
-
-- `check_queues.sh` - 扫描端口，显示端口计数器、限速配置
-   ```bash
-   # 扫描 Pipe 1 (ports 128-255)
-   ./check_queues.sh
-   
-   # 扫描 Pipe 0 (ports 0-127)
-   ./check_queues.sh --pipe 0
-   
-   # 查询特定端口
-   ./check_queues.sh --dev-port 189
-   ```
 
 ---
 
