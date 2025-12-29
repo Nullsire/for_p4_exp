@@ -33,6 +33,10 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import numpy as np
 
 # Port ranges for identifying flow types (matching gen_experiment.py)
 CUBIC_PORT_MIN = 5201
@@ -87,34 +91,17 @@ class TCPFlowMetrics:
         """Convert to dictionary for CSV output."""
         return {
             'timestamp_ns': self.timestamp_ns,
-            'timestamp_ms': f"{self.timestamp_ms:.3f}",
-            'local_addr': self.local_addr,
             'local_port': self.local_port,
-            'remote_addr': self.remote_addr,
             'remote_port': self.remote_port,
             'state': self.state,
-            'congestion_algo': self.congestion_algo,
             'flow_type': self.flow_type,
             'flow_id': self.flow_id,
             'cwnd': self.cwnd,
-            'ssthresh': self.ssthresh,
             'rtt_us': f"{self.rtt_us:.3f}",
-            'rttvar_us': f"{self.rttvar_us:.3f}",
-            'rtt_ms': f"{self.rtt_us / 1000:.3f}",  # Convenience field
-            'rto_ms': self.rto_ms,
-            'mss': self.mss,
-            'bytes_sent': self.bytes_sent,
-            'bytes_acked': self.bytes_acked,
-            'bytes_received': self.bytes_received,
-            'segs_out': self.segs_out,
-            'segs_in': self.segs_in,
+            'rtt_var_us': f"{self.rttvar_us:.3f}",
             'retrans': self.retrans,
             'lost': self.lost,
             'delivery_rate_bps': f"{self.delivery_rate_bps:.0f}",
-            'delivery_rate_mbps': f"{self.delivery_rate_bps / 1_000_000:.3f}",
-            'pacing_rate_bps': f"{self.pacing_rate_bps:.0f}",
-            'pacing_rate_mbps': f"{self.pacing_rate_bps / 1_000_000:.3f}",
-            'ecn_flags': self.ecn_flags,
         }
 
 
@@ -385,6 +372,135 @@ def collect_tcp_metrics(dst_ip: str) -> str:
         return ""
 
 
+class RealTimePlotter:
+    """Real-time plotter for TCP metrics."""
+    
+    def __init__(self, output_dir: str = "./plots", plot_interval: int = 1000):
+        """
+        Initialize the real-time plotter.
+        
+        Args:
+            output_dir: Directory to save plots
+            plot_interval: Number of samples between plot updates
+        """
+        self.output_dir = output_dir
+        self.plot_interval = plot_interval
+        self.sample_count = 0
+        
+        # Data storage for plotting
+        self.data = {
+            'time_sec': [],
+            'rtt_ms': [],
+            'cwnd': [],
+            'delivery_rate_mbps': [],
+            'retrans': [],
+            'flow_type': [],
+            'flow_id': [],
+        }
+        
+        # Create output directory
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Color palette
+        self.palette = {"cubic": "blue", "prague": "orange"}
+    
+    def add_data(self, flows: List[TCPFlowMetrics], start_time_ns: int):
+        """Add flow data to the plotter."""
+        for flow in flows:
+            time_sec = (flow.timestamp_ns - start_time_ns) / 1e9
+            self.data['time_sec'].append(time_sec)
+            self.data['rtt_ms'].append(flow.rtt_us / 1000.0)
+            self.data['cwnd'].append(flow.cwnd)
+            self.data['delivery_rate_mbps'].append(flow.delivery_rate_bps / 1e6)
+            self.data['retrans'].append(flow.retrans)
+            self.data['flow_type'].append(flow.flow_type)
+            self.data['flow_id'].append(flow.flow_id)
+        
+        self.sample_count += 1
+    
+    def should_plot(self) -> bool:
+        """Check if it's time to update plots."""
+        return self.sample_count % self.plot_interval == 0
+    
+    def plot_metrics(self):
+        """Generate and save plots for all metrics."""
+        if not self.data['time_sec']:
+            return
+        
+        # Convert to numpy arrays for faster processing
+        time_sec = np.array(self.data['time_sec'])
+        rtt_ms = np.array(self.data['rtt_ms'])
+        cwnd = np.array(self.data['cwnd'])
+        delivery_rate_mbps = np.array(self.data['delivery_rate_mbps'])
+        retrans = np.array(self.data['retrans'])
+        flow_type = np.array(self.data['flow_type'])
+        flow_id = np.array(self.data['flow_id'])
+        
+        # Plot RTT
+        self._plot_single_metric(
+            time_sec, rtt_ms, flow_type, flow_id,
+            'RTT over Time', 'RTT (ms)', 'rtt_over_time.png'
+        )
+        
+        # Plot CWND
+        self._plot_single_metric(
+            time_sec, cwnd, flow_type, flow_id,
+            'Congestion Window over Time', 'CWND (segments)', 'cwnd_over_time.png'
+        )
+        
+        # Plot Delivery Rate
+        self._plot_single_metric(
+            time_sec, delivery_rate_mbps, flow_type, flow_id,
+            'Delivery Rate over Time', 'Delivery Rate (Mbps)', 'delivery_rate_over_time.png',
+            use_log_scale=True
+        )
+        
+        # Plot Retransmits
+        self._plot_single_metric(
+            time_sec, retrans, flow_type, flow_id,
+            'Retransmits over Time', 'Cumulative Retransmits', 'retransmits_over_time.png'
+        )
+    
+    def _plot_single_metric(self, time_sec, values, flow_type, flow_id,
+                           title, ylabel, filename, use_log_scale=False):
+        """Plot a single metric."""
+        fig, ax = plt.subplots(figsize=(14, 7))
+        
+        # Plot each flow type
+        for ft, color in self.palette.items():
+            mask = flow_type == ft
+            if not np.any(mask):
+                continue
+            
+            # Get unique flow IDs for this type
+            unique_flow_ids = np.unique(flow_id[mask])
+            
+            for fid in unique_flow_ids:
+                flow_mask = (flow_type == ft) & (flow_id == fid)
+                ax.plot(time_sec[flow_mask], values[flow_mask],
+                       color=color, linewidth=0.5, alpha=0.7, label=f"{ft}" if fid == unique_flow_ids[0] else "")
+        
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel('Time (s)', fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+        
+        # Create legend with only one entry per flow type
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys(), loc='upper right')
+        
+        ax.grid(True, alpha=0.3)
+        
+        if use_log_scale:
+            ax.set_yscale('log')
+        
+        plt.tight_layout()
+        output_path = os.path.join(self.output_dir, filename)
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+
+
 def high_precision_sleep(duration_sec: float):
     """
     High-precision sleep using busy-wait for sub-millisecond accuracy.
@@ -419,26 +535,17 @@ Examples:
 
 Output CSV columns:
   - timestamp_ns: Nanosecond timestamp
-  - timestamp_ms: Relative time in milliseconds
-  - local_addr, local_port: Local socket address
-  - remote_addr, remote_port: Remote socket address
+  - local_port: Local port number
+  - remote_port: Remote port number
   - state: TCP connection state
-  - congestion_algo: Detected congestion control algorithm (cubic, prague, etc.)
   - flow_type: Flow type based on port (cubic, prague, unknown)
   - flow_id: Unique flow identifier
   - cwnd: Congestion window in segments
-  - ssthresh: Slow start threshold
   - rtt_us: RTT in microseconds
-  - rttvar_us: RTT variance in microseconds
-  - rtt_ms: RTT in milliseconds (convenience)
-  - rto_ms: Retransmission timeout in milliseconds
-  - mss: Maximum segment size
-  - bytes_sent, bytes_acked, bytes_received: Byte counters
-  - segs_out, segs_in: Segment counters
-  - retrans, lost: Retransmit and loss counters
-  - delivery_rate_bps, delivery_rate_mbps: Delivery rate
-  - pacing_rate_bps, pacing_rate_mbps: Pacing rate
-  - ecn_flags: ECN-related flags
+  - rtt_var_us: RTT variance in microseconds
+  - retrans: Retransmit counter
+  - lost: Lost packet counter
+  - delivery_rate_bps: Delivery rate in bits per second
         """
     )
     
@@ -454,6 +561,12 @@ Output CSV columns:
                         help="Print progress information")
     parser.add_argument("--no-header", action="store_true",
                         help="Don't write CSV header (for appending)")
+    parser.add_argument("--plot", action="store_true",
+                        help="Enable real-time plotting during collection")
+    parser.add_argument("--plot-dir", default="./plots",
+                        help="Directory to save real-time plots (default: ./plots)")
+    parser.add_argument("--plot-interval", type=int, default=1000,
+                        help="Number of samples between plot updates (default: 1000)")
     
     args = parser.parse_args()
     
@@ -472,16 +585,17 @@ Output CSV columns:
     print(f"  Duration: {args.duration}s")
     print(f"  Expected samples: ~{total_samples}")
     print(f"  Output: {args.output}")
+    if args.plot:
+        print(f"  Real-time plotting: ENABLED")
+        print(f"  Plot directory: {args.plot_dir}")
+        print(f"  Plot update interval: every {args.plot_interval} samples")
     print()
     
     # CSV field names
     fieldnames = [
-        'timestamp_ns', 'timestamp_ms', 'local_addr', 'local_port',
-        'remote_addr', 'remote_port', 'state', 'congestion_algo',
-        'flow_type', 'flow_id', 'cwnd', 'ssthresh', 'rtt_us', 'rttvar_us',
-        'rtt_ms', 'rto_ms', 'mss', 'bytes_sent', 'bytes_acked', 'bytes_received',
-        'segs_out', 'segs_in', 'retrans', 'lost', 'delivery_rate_bps',
-        'delivery_rate_mbps', 'pacing_rate_bps', 'pacing_rate_mbps', 'ecn_flags'
+        'timestamp_ns', 'local_port', 'remote_port', 'state',
+        'flow_type', 'flow_id', 'cwnd', 'rtt_us', 'rtt_var_us',
+        'retrans', 'lost', 'delivery_rate_bps'
     ]
     
     # Open output file
@@ -491,6 +605,11 @@ Output CSV columns:
         if not args.no_header:
             writer.writeheader()
         
+        # Initialize real-time plotter if enabled
+        plotter = None
+        if args.plot:
+            plotter = RealTimePlotter(output_dir=args.plot_dir, plot_interval=args.plot_interval)
+        
         # Record start time
         start_time_ns = time.time_ns()
         start_time_perf = time.perf_counter()
@@ -499,6 +618,7 @@ Output CSV columns:
         sample_count = 0
         flow_count = 0
         last_progress_time = start_time_perf
+        last_plot_time = start_time_perf
         
         print(f"Started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("Press Ctrl+C to stop early")
@@ -522,6 +642,10 @@ Output CSV columns:
                     writer.writerow(flow.to_dict())
                     flow_count += 1
                 
+                # Add data to plotter if enabled
+                if plotter:
+                    plotter.add_data(flows, start_time_ns)
+                
                 sample_count += 1
                 
                 # Progress update every second
@@ -532,6 +656,14 @@ Output CSV columns:
                     print(f"\r  Elapsed: {elapsed:.1f}s, Remaining: {remaining:.1f}s, "
                           f"Samples: {sample_count}, Flow records: {flow_count}", end='')
                     last_progress_time = current_time
+                
+                # Update plots if enabled and interval reached
+                if plotter and plotter.should_plot():
+                    plot_start = time.perf_counter()
+                    plotter.plot_metrics()
+                    plot_duration = time.perf_counter() - plot_start
+                    if args.verbose:
+                        print(f"\n  Plots updated in {plot_duration:.2f}s")
                 
                 # Calculate sleep time to maintain interval
                 sample_duration = time.perf_counter() - sample_start
@@ -555,6 +687,8 @@ Output CSV columns:
     print(f"  Flow records: {flow_count}")
     print(f"  Average sample rate: {sample_count / elapsed:.1f} samples/s")
     print(f"  Output saved to: {args.output}")
+    if plotter:
+        print(f"  Plots saved to: {args.plot_dir}")
     
     # Show file size
     file_size = os.path.getsize(args.output)

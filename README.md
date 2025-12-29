@@ -46,7 +46,11 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 2. **Sender 端**：运行 `run_sender_confI.sh`
 3. **Sender 端 (可选)**：运行 TCP 高精度采集器
    ```bash
+   # 基础采集（仅 CSV）
    python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv
+   
+   # 采集 + 实时绘图
+   python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv --plot --verbose
    ```
 4. **交换机**：实时监控队列
    ```bash
@@ -96,10 +100,40 @@ python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metri
 利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
 
 ```bash
+# 基础采集（仅 CSV）
 python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
+
+# 采集 + 实时绘图
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv --plot --verbose
+
+# 自定义绘图参数
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
 ```
 
-**支持的指标**：`goodput`, `bytes`, `retransmits`, `cwnd`, `rtt`, `rttvar`, `all`
+**CSV 输出列**：
+- `timestamp_ns` - 纳秒时间戳
+- `local_port` - 本地端口号
+- `remote_port` - 远程端口号
+- `state` - TCP 连接状态
+- `flow_type` - 流类型（cubic, prague, unknown）
+- `flow_id` - 唯一流标识符
+- `cwnd` - 拥塞窗口（段数）
+- `rtt_us` - RTT（微秒）
+- `rtt_var_us` - RTT 方差（微秒）
+- `retrans` - 重传计数
+- `lost` - 丢包计数
+- `delivery_rate_bps` - 传输速率（比特/秒）
+
+**实时绘图功能**：
+- `--plot` - 启用实时绘图
+- `--plot-dir` - 指定绘图输出目录（默认：`./plots`）
+- `--plot-interval` - 指定绘图更新间隔（样本数，默认：1000）
+
+生成的图表：
+- RTT over Time
+- Congestion Window over Time
+- Delivery Rate over Time（对数坐标）
+- Retransmits over Time
 
 ### 4. `visualize_tcp_metrics.py` - TCP 指标可视化
 
