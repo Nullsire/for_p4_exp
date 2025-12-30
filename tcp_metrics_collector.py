@@ -478,7 +478,25 @@ class RealTimePlotter:
             
             for fid in unique_flow_ids:
                 flow_mask = (flow_type == ft) & (flow_id == fid)
-                ax.plot(time_sec[flow_mask], values[flow_mask],
+                
+                # Filter out invalid/zero values to avoid horizontal lines
+                # RTT should be > 0, CWND should be > 0, delivery_rate can be 0 but skip if all zeros
+                if 'RTT' in title:
+                    valid_mask = flow_mask & (values > 0)
+                elif 'CWND' in title:
+                    valid_mask = flow_mask & (values > 0)
+                elif 'Delivery Rate' in title:
+                    # For delivery rate, filter out rows where rate is 0 (inactive flows)
+                    valid_mask = flow_mask & (values > 0)
+                else:
+                    # For retransmits, 0 is valid, so don't filter
+                    valid_mask = flow_mask
+                
+                # Skip if no valid data points
+                if not np.any(valid_mask):
+                    continue
+                
+                ax.plot(time_sec[valid_mask], values[valid_mask],
                        color=color, linewidth=0.5, alpha=0.8, label=f"{ft}" if fid == unique_flow_ids[0] else "")
         
         ax.set_title(title, fontsize=16)

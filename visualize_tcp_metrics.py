@@ -34,12 +34,30 @@ def plot_single_metric_optimized(args):
         # This is the most expensive part, but much faster than plt.plot loop
         segments = []
         
-        # Group by flow_id. Since it's sorted, we can just iterate? 
+        # Group by flow_id. Since it's sorted, we can just iterate?
         # groupby is safer and reasonably fast
         for _, flow_data in type_subset.groupby('flow_id'):
+            # Filter out invalid/zero values to avoid horizontal lines
+            # RTT should be > 0, CWND should be > 0, delivery_rate can be 0 but skip if all zeros
+            if metric_col == 'rtt_ms':
+                valid_mask = flow_data[metric_col] > 0
+            elif metric_col == 'cwnd':
+                valid_mask = flow_data[metric_col] > 0
+            elif metric_col == 'delivery_rate_mbps':
+                # For delivery rate, filter out rows where rate is 0 (inactive flows)
+                valid_mask = flow_data[metric_col] > 0
+            else:
+                # For retransmits, 0 is valid, so don't filter
+                valid_mask = pd.Series([True] * len(flow_data), index=flow_data.index)
+            
+            # Skip if no valid data points
+            if not valid_mask.any():
+                continue
+            
             # Extract x and y as a list of (x, y) tuples
             # Using numpy column_stack is faster
-            points = np.column_stack((flow_data['time_sec'].values, flow_data[metric_col].values))
+            valid_data = flow_data[valid_mask]
+            points = np.column_stack((valid_data['time_sec'].values, valid_data[metric_col].values))
             segments.append(points)
             
         # Create LineCollection with semi-transparent lines (alpha=0.8)

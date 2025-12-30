@@ -1,11 +1,9 @@
 #include <net/sock.h>
 #include <net/tcp.h>
 
-BEGIN
-{
-    // CSV Header
-    printf("timestamp_ns,local_port,remote_port,state,flow_type,flow_id,cwnd,rtt_us,rtt_var_us,retrans,lost,delivery_rate_bps\n");
-}
+// 注意: 由于部分版本 bpftrace 存在 BEGIN_trigger 符号问题，已移除 BEGIN 块
+// 请在运行前手动打印 CSV 头部:
+// echo "timestamp_ns,local_port,remote_port,flow_type,flow_id,cwnd_segs,srtt_us,rttvar_us,total_retrans,lost_segs,rate_delivered_bps"
 
 kprobe:tcp_rcv_established
 {
@@ -13,11 +11,9 @@ kprobe:tcp_rcv_established
     $tp = (struct tcp_sock *)$sk;
     $inet = (struct inet_sock *)$sk;
 
-    // 获取端口 (处理大小端)
-    // 如果你的环境支持 bswap，这里也可以写 $lport = bswap($inet->inet_sport);
-    $lport_be = $inet->inet_sport;
-    $rport_be = $inet->inet_dport;
-    $lport = ($lport_be >> 8) | (($lport_be & 0xff) << 8);
+    // 获取端口 (直接访问 sock_common 字段避免宏递归)
+    $lport = $sk->__sk_common.skc_num;
+    $rport_be = $sk->__sk_common.skc_dport;
     $rport = ($rport_be >> 8) | (($rport_be & 0xff) << 8);
     
     // --- 端口范围判断逻辑 ---
@@ -35,21 +31,19 @@ kprobe:tcp_rcv_established
     // 只记录目标范围内的流
     if ($type != 0) {
         $flow_type = ($type == 1) ? "cubic" : "prague";
-        $state = $sk->__sk_common.skc_state;
 
-        printf("%llu,%d,%d,%d,%s,%s_%d_%d,%d,%d,%d,%d,%d,%lu\n",
+        printf("%llu,%d,%d,%s,%s_%d_%d,%u,%u,%u,%u,%u,%lu\n",
             nsecs,
-            $lport, 
+            $lport,
             $rport,
-            $state,
             $flow_type,
             $flow_type, $lport, $rport,
-            $tp->snd_cwnd,               // cwnd (segments)
-            $tp->srtt_us >> 3,           // rtt_us (micro-seconds)
-            $tp->mdev_us >> 2,           // rtt_var_us (micro-seconds)
-            $tp->total_retrans,          // retrans (count)
-            $tp->lost,                   // lost (count)
-            $tp->rate_delivered * 8      // <--- 关键修正: Bytes/s -> bits/s
+            $tp->snd_cwnd,               // cwnd_segs: 拥塞窗口 (单位: segments/MSS)
+            $tp->srtt_us >> 3,           // srtt_us: 平滑RTT (单位: 微秒, 内核存储为 us<<3)
+            $tp->mdev_us >> 2,           // rttvar_us: RTT方差 (单位: 微秒, 内核存储为 us<<2)
+            $tp->total_retrans,          // total_retrans: 总重传次数 (累计计数)
+            $tp->lost,                   // lost_segs: 丢失的段数 (单位: segments)
+            $tp->rate_delivered * 8      // rate_delivered_bps: 交付速率 (单位: bits/s, 内核为Bytes/s故乘8)
         );
     }
 }

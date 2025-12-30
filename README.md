@@ -101,13 +101,13 @@ python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metri
 
 ```bash
 # 基础采集（仅 CSV）
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --output tcp_metrics.csv
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
 
 # 采集 + 实时绘图
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --output tcp_metrics.csv --plot --verbose
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv --plot --verbose
 
 # 自定义绘图参数
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
 ```
 
 **CSV 输出列**：
@@ -146,7 +146,7 @@ python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 10 --durat
 # 可视化 tcp_metrics_collector.py 生成的数据
 python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output ./exp_logs_I/plots
 
-# 可视化 bpftrace 生成的数据
+# 可视化 bpftrace 生成的数据（注：csv文件生成后需要修改文件首行，具体参考脚本中的注释）
 sudo bpftrace trace_tcp.bt > tcp_metrics.csv
 python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 ```
@@ -249,3 +249,8 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 
 2. **重启程序后限速失效**
    - 重新运行 `apply` 命令
+
+3. **重启交换机后两台主机无法ping通**
+   - 在交换机上运行 `ifconfig enp4s0f0 up`
+   - 在 receiver 端运行 `sudo ip route add 192.168.0.0/16 via 192.168.6.1`
+
