@@ -1,8 +1,6 @@
 # Tofino Traffic Manager 实验：限速与监控
 
-本项目包含一组用于在 Tofino 交换机上进行流量管理（Traffic Manager, TM）实验的脚本。主要功能包括：在 egress 端口或队列上施加限速（Shaping）、实时观测队列堆积、水位（Watermark）以及丢包（Drops）情况。
-
-**注意**：本 SDE 版本（bf-sde-9.13.0）的 BFRT API 不支持设置队列深度（Queue Depth）。队列深度配置需要通过其他方式（如控制平面 C 代码）实现。
+本项目包含一组用于在 Tofino 交换机上进行流量管理（Traffic Manager, TM）实验的脚本。
 
 ---
 
@@ -47,10 +45,10 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 3. **Sender 端 (可选)**：运行 TCP 高精度采集器
    ```bash
    # 基础采集（仅 CSV）
-   python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv
+   python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --output ./exp_logs_I/tcp_metrics.csv
    
    # 采集 + 实时绘图
-   python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output ./exp_logs_I/tcp_metrics.csv --plot --verbose
+   python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --output ./exp_logs_I/tcp_metrics.csv --plot --verbose
    ```
 4. **交换机**：实时监控队列
    ```bash

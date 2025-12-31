@@ -48,13 +48,11 @@ PRAGUE_PORT_MAX = 5250
 @dataclass
 class TCPFlowMetrics:
     """Represents metrics for a single TCP flow at a point in time."""
-    timestamp_ns: int
     timestamp_ms: float  # Relative time in milliseconds
     local_addr: str
     local_port: int
     remote_addr: str
     remote_port: int
-    state: str
     congestion_algo: str  # cubic, prague, bbr, etc.
     flow_type: str  # cubic, prague, unknown (based on port)
     flow_id: str  # Unique identifier for the flow
@@ -80,8 +78,8 @@ class TCPFlowMetrics:
     retrans: int = 0
     lost: int = 0
     
-    # Rate metrics (in bps)
-    delivery_rate_bps: float = 0.0
+    # Rate metrics (in Mbps)
+    delivery_rate_mbps: float = 0.0
     pacing_rate_bps: float = 0.0
     
     # ECN metrics (important for Prague)
