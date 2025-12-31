@@ -101,13 +101,13 @@ python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metri
 
 ```bash
 # 基础采集（仅 CSV）
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --output tcp_metrics.csv
 
 # 采集 + 实时绘图
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --output tcp_metrics.csv --plot --verbose
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --output tcp_metrics.csv --plot --verbose
 
 # 自定义绘图参数
-python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 1 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
+python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --plot --plot-dir ./my_plots --plot-interval 500
 ```
 
 **CSV 输出列**：
