@@ -479,24 +479,26 @@ class RealTimePlotter:
             for fid in unique_flow_ids:
                 flow_mask = (flow_type == ft) & (flow_id == fid)
                 
-                # Filter out invalid/zero values to avoid horizontal lines
+                # Create a copy of values for this flow and set invalid values to NaN
+                # This prevents matplotlib from drawing horizontal lines across gaps
+                flow_values = np.where(flow_mask, values, np.nan)
+                
+                # Set invalid/zero values to NaN to avoid horizontal lines
                 # RTT should be > 0, CWND should be > 0, delivery_rate can be 0 but skip if all zeros
                 if 'RTT' in title:
-                    valid_mask = flow_mask & (values > 0)
+                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
                 elif 'CWND' in title:
-                    valid_mask = flow_mask & (values > 0)
+                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
                 elif 'Delivery Rate' in title:
-                    # For delivery rate, filter out rows where rate is 0 (inactive flows)
-                    valid_mask = flow_mask & (values > 0)
-                else:
-                    # For retransmits, 0 is valid, so don't filter
-                    valid_mask = flow_mask
+                    # For delivery rate, set 0 values to NaN (inactive flows)
+                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
+                # For retransmits, 0 is valid, so don't modify
                 
                 # Skip if no valid data points
-                if not np.any(valid_mask):
+                if np.all(np.isnan(flow_values)):
                     continue
                 
-                ax.plot(time_sec[valid_mask], values[valid_mask],
+                ax.plot(time_sec, flow_values,
                        color=color, linewidth=0.5, alpha=0.8, label=f"{ft}" if fid == unique_flow_ids[0] else "")
         
         ax.set_title(title, fontsize=16)
