@@ -9,6 +9,53 @@ import time
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 
+
+def plot_rtt_cdf(df: pd.DataFrame, output_dir: str, palette: dict, filename: str = "rtt_cdf.png"):
+    """Plot empirical CDF of RTT (ms) for each flow_type.
+
+    x-axis: RTT in ms
+    y-axis: CDF probability
+    """
+    if df.empty or 'rtt_ms' not in df.columns:
+        print("Skipping RTT CDF: no data")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    any_plotted = False
+    for flow_type, color in palette.items():
+        subset = df[df['flow_type'] == flow_type]
+        if subset.empty:
+            continue
+
+        rtt = subset['rtt_ms'].to_numpy(dtype=float)
+        rtt = rtt[np.isfinite(rtt) & (rtt > 0)]
+        if rtt.size == 0:
+            continue
+
+        rtt.sort()
+        # Empirical CDF: y in (0, 1]
+        y = (np.arange(1, rtt.size + 1, dtype=float)) / float(rtt.size)
+
+        ax.plot(rtt, y, color=color, linewidth=2.0, label=f"{flow_type.capitalize()} (n={rtt.size})")
+        any_plotted = True
+
+    ax.set_title("RTT CDF")
+    ax.set_xlabel("RTT (ms)")
+    ax.set_ylabel("CDF")
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, alpha=0.3)
+    if any_plotted:
+        ax.legend(loc='lower right')
+    else:
+        ax.text(0.5, 0.5, "No valid RTT samples", ha="center", va="center", transform=ax.transAxes)
+
+    plt.tight_layout()
+    output_path = os.path.join(output_dir, filename)
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+    print(f"Finished {filename}")
+
 def plot_single_metric_optimized(args):
     """
     Worker function to plot a single metric using LineCollection for speed.
@@ -125,6 +172,13 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     
     # Pre-calculate RTT in ms (from us)
     df['rtt_ms'] = df['rtt_us'] / 1000.0
+
+    # Filter outliers: ignore rows with RTT > 400ms (keep NaNs to avoid dropping other metrics)
+    before_rows = len(df)
+    df = df[df['rtt_ms'].isna() | (df['rtt_ms'] <= 400.0)]
+    filtered_rows = before_rows - len(df)
+    if filtered_rows > 0:
+        print(f"Filtered {filtered_rows} rows with rtt_ms > 400ms")
     
     # Pre-calculate delivery rate in Mbps (from bps)
     df['delivery_rate_mbps'] = df['delivery_rate_bps'] / 1e6
@@ -134,6 +188,10 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     df.sort_values(by=['flow_id', 'time_sec'], inplace=True)
     
     palette = {"cubic": "blue", "prague": "orange"}
+
+    # RTT CDF (single plot, computed once to avoid heavy dataframe copies)
+    print("Generating RTT CDF...")
+    plot_rtt_cdf(df[['flow_type', 'rtt_ms']].copy(), output_dir, palette)
     
     # Prepare tasks
     # We pass the full dataframe (filtered by columns if needed to save RAM, but here we just pass slices)
