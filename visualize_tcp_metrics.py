@@ -41,7 +41,7 @@ def plot_single_metric_optimized(args):
             # RTT should be > 0, CWND should be > 0, delivery_rate can be 0 but skip if all zeros
             if metric_col == 'rtt_ms':
                 valid_mask = flow_data[metric_col] > 0
-            elif metric_col == 'cwnd':
+            elif metric_col == 'cwnd_segs':
                 valid_mask = flow_data[metric_col] > 0
             elif metric_col == 'delivery_rate_mbps':
                 # For delivery rate, filter out rows where rate is 0 (inactive flows)
@@ -57,8 +57,30 @@ def plot_single_metric_optimized(args):
             # Extract x and y as a list of (x, y) tuples
             # Using numpy column_stack is faster
             valid_data = flow_data[valid_mask]
-            points = np.column_stack((valid_data['time_sec'].values, valid_data[metric_col].values))
-            segments.append(points)
+            
+            # Break segments at large time gaps to avoid horizontal lines across inactive periods
+            # Calculate time differences between consecutive points
+            time_values = valid_data['time_sec'].values
+            metric_values = valid_data[metric_col].values
+            
+            # Find indices where time gap is too large (> 1 second)
+            time_diffs = np.diff(time_values)
+            gap_threshold = 1.0  # seconds
+            gap_indices = np.where(time_diffs > gap_threshold)[0]
+            
+            # Split into segments at gaps
+            start_idx = 0
+            for gap_idx in gap_indices:
+                end_idx = gap_idx + 1  # gap_idx is the index before the gap
+                if end_idx > start_idx:
+                    segment_points = np.column_stack((time_values[start_idx:end_idx], metric_values[start_idx:end_idx]))
+                    segments.append(segment_points)
+                start_idx = end_idx
+            
+            # Add the last segment
+            if start_idx < len(time_values):
+                segment_points = np.column_stack((time_values[start_idx:], metric_values[start_idx:]))
+                segments.append(segment_points)
             
         # Create LineCollection with semi-transparent lines (alpha=0.8)
         lc = mcoll.LineCollection(
@@ -111,7 +133,7 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     t0 = time.time()
     
     # Read only necessary columns
-    usecols = ['timestamp_ns', 'flow_type', 'flow_id', 'rtt_us', 'cwnd', 'delivery_rate_bps', 'retrans']
+    usecols = ['timestamp_ns', 'flow_type', 'flow_id', 'srtt_us', 'cwnd_segs', 'rate_delivered_bps', 'total_retrans']
     df = pd.read_csv(csv_file, usecols=usecols)
     
     print(f"Data loaded in {time.time() - t0:.2f}s. Rows: {len(df)}")
@@ -124,10 +146,10 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     df['time_sec'] = (df['timestamp_ns'] - start_time) / 1e9
     
     # Pre-calculate RTT in ms (from us)
-    df['rtt_ms'] = df['rtt_us'] / 1000.0
+    df['rtt_ms'] = df['srtt_us'] / 1000.0
     
     # Pre-calculate delivery rate in Mbps (from bps)
-    df['delivery_rate_mbps'] = df['delivery_rate_bps'] / 1e6
+    df['delivery_rate_mbps'] = df['rate_delivered_bps'] / 1e6
     
     # Sort by flow_id and time for correct line segments
     print("Sorting data...")
@@ -142,9 +164,9 @@ def visualize_tcp_metrics_optimized(csv_file, output_dir):
     
     tasks = [
         (df[['time_sec', 'flow_type', 'flow_id', 'rtt_ms']].copy(), 'rtt_ms', 'RTT (ms)', 'RTT over Time (Full Resolution)', 'rtt_over_time_opt.png', output_dir, palette, False),
-        (df[['time_sec', 'flow_type', 'flow_id', 'cwnd']].copy(), 'cwnd', 'CWND (segments)', 'Congestion Window over Time (Full Resolution)', 'cwnd_over_time_opt.png', output_dir, palette, False),
+        (df[['time_sec', 'flow_type', 'flow_id', 'cwnd_segs']].copy(), 'cwnd_segs', 'CWND (segments)', 'Congestion Window over Time (Full Resolution)', 'cwnd_over_time_opt.png', output_dir, palette, False),
         (df[['time_sec', 'flow_type', 'flow_id', 'delivery_rate_mbps']].copy(), 'delivery_rate_mbps', 'Delivery Rate (Mbps)', 'Delivery Rate over Time (Full Resolution)', 'delivery_rate_over_time_opt.png', output_dir, palette, True),
-        (df[['time_sec', 'flow_type', 'flow_id', 'retrans']].copy(), 'retrans', 'Cumulative Retransmits', 'Retransmits over Time (Full Resolution)', 'retransmits_over_time_opt.png', output_dir, palette, False)
+        (df[['time_sec', 'flow_type', 'flow_id', 'total_retrans']].copy(), 'total_retrans', 'Cumulative Retransmits', 'Retransmits over Time (Full Resolution)', 'retransmits_over_time_opt.png', output_dir, palette, False)
     ]
     
     print(f"Starting parallel plotting of {len(tasks)} charts...")
