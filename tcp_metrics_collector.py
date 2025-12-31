@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
+matplotlib.use('Agg')  # Use non-interactive backend for file-based plotting
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -48,11 +48,13 @@ PRAGUE_PORT_MAX = 5250
 @dataclass
 class TCPFlowMetrics:
     """Represents metrics for a single TCP flow at a point in time."""
+    timestamp_ns: int  # Absolute timestamp in nanoseconds
     timestamp_ms: float  # Relative time in milliseconds
     local_addr: str
     local_port: int
     remote_addr: str
     remote_port: int
+    state: str  # TCP connection state (ESTAB, etc.)
     congestion_algo: str  # cubic, prague, bbr, etc.
     flow_type: str  # cubic, prague, unknown (based on port)
     flow_id: str  # Unique identifier for the flow
@@ -78,8 +80,8 @@ class TCPFlowMetrics:
     retrans: int = 0
     lost: int = 0
     
-    # Rate metrics (in Mbps)
-    delivery_rate_mbps: float = 0.0
+    # Rate metrics (in bps for precision, convert to Mbps when needed)
+    delivery_rate_bps: float = 0.0
     pacing_rate_bps: float = 0.0
     
     # ECN metrics (important for Prague)
@@ -324,15 +326,27 @@ def parse_detail_line(detail_line: str, timestamp_ns: int, start_time_ns: int,
     if match:
         metrics.lost = int(match.group(1))
     
-    # delivery_rate
-    match = re.search(r'\bdelivery_rate\s+([\d.]+[KMG]?bps)', detail_line)
+    # delivery_rate - ss output format: "delivery_rate 123Mbps" or "send 123Mbps"
+    # The rate value may have various suffixes: bps, Kbps, Mbps, Gbps
+    match = re.search(r'\bdelivery_rate\s+([\d.]+)\s*([KMG]?bps)', detail_line)
     if match:
-        metrics.delivery_rate_bps = parse_rate(match.group(1))
+        rate_value = match.group(1) + match.group(2)
+        metrics.delivery_rate_bps = parse_rate(rate_value)
+    else:
+        # Alternative format without space between number and unit
+        match = re.search(r'\bdelivery_rate\s+([\d.]+[KMG]?bps)', detail_line)
+        if match:
+            metrics.delivery_rate_bps = parse_rate(match.group(1))
     
-    # pacing_rate
-    match = re.search(r'\bpacing_rate\s+([\d.]+[KMG]?bps)', detail_line)
+    # pacing_rate - similar format to delivery_rate
+    match = re.search(r'\bpacing_rate\s+([\d.]+)\s*([KMG]?bps)', detail_line)
     if match:
-        metrics.pacing_rate_bps = parse_rate(match.group(1))
+        rate_value = match.group(1) + match.group(2)
+        metrics.pacing_rate_bps = parse_rate(rate_value)
+    else:
+        match = re.search(r'\bpacing_rate\s+([\d.]+[KMG]?bps)', detail_line)
+        if match:
+            metrics.pacing_rate_bps = parse_rate(match.group(1))
     
     # ECN flags
     ecn_flags = []
@@ -371,7 +385,18 @@ def collect_tcp_metrics(dst_ip: str) -> str:
 
 
 class RealTimePlotter:
-    """Real-time plotter for TCP metrics."""
+    """Real-time plotter for TCP metrics.
+    
+    NOTE: True real-time interactive plotting is not feasible during high-frequency
+    data collection because:
+    1. matplotlib's interactive backends (TkAgg, Qt5Agg) require GUI event loop processing
+    2. The main collection loop cannot yield to the GUI event loop without missing samples
+    3. At 1ms sampling intervals, there's no time for GUI updates
+    
+    This implementation saves plots to files periodically, which can be viewed with
+    an external image viewer that auto-refreshes (e.g., `feh --reload 1` on Linux,
+    or use a browser with auto-refresh extension to view the PNG files).
+    """
     
     def __init__(self, output_dir: str = "./plots", plot_interval: int = 1000):
         """
@@ -385,138 +410,115 @@ class RealTimePlotter:
         self.plot_interval = plot_interval
         self.sample_count = 0
         
-        # Data storage for plotting
-        self.data = {
-            'time_sec': [],
-            'rtt_ms': [],
-            'cwnd': [],
-            'delivery_rate_mbps': [],
-            'retrans': [],
-            'flow_type': [],
-            'flow_id': [],
-        }
+        # Data storage for plotting - organized by flow_id for efficient access
+        self.flow_data: Dict[str, Dict[str, List]] = {}
         
         # Create output directory
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
         # Color palette
-        self.palette = {"cubic": "blue", "prague": "orange"}
+        self.palette = {"cubic": "blue", "prague": "orange", "unknown": "gray"}
     
     def add_data(self, flows: List[TCPFlowMetrics], start_time_ns: int):
         """Add flow data to the plotter."""
         for flow in flows:
+            flow_id = flow.flow_id
+            
+            # Initialize storage for new flows
+            if flow_id not in self.flow_data:
+                self.flow_data[flow_id] = {
+                    'time_sec': [],
+                    'rtt_ms': [],
+                    'cwnd': [],
+                    'delivery_rate_mbps': [],
+                    'retrans': [],
+                    'flow_type': flow.flow_type,
+                }
+            
             time_sec = (flow.timestamp_ns - start_time_ns) / 1e9
-            self.data['time_sec'].append(time_sec)
-            self.data['rtt_ms'].append(flow.rtt_us / 1000.0)
-            self.data['cwnd'].append(flow.cwnd)
-            self.data['delivery_rate_mbps'].append(flow.delivery_rate_bps / 1e6)
-            self.data['retrans'].append(flow.retrans)
-            self.data['flow_type'].append(flow.flow_type)
-            self.data['flow_id'].append(flow.flow_id)
+            self.flow_data[flow_id]['time_sec'].append(time_sec)
+            self.flow_data[flow_id]['rtt_ms'].append(flow.rtt_us / 1000.0)
+            self.flow_data[flow_id]['cwnd'].append(flow.cwnd)
+            self.flow_data[flow_id]['delivery_rate_mbps'].append(flow.delivery_rate_bps / 1e6)
+            self.flow_data[flow_id]['retrans'].append(flow.retrans)
         
         self.sample_count += 1
     
     def should_plot(self) -> bool:
         """Check if it's time to update plots."""
-        return self.sample_count % self.plot_interval == 0
+        return self.sample_count > 0 and self.sample_count % self.plot_interval == 0
     
     def plot_metrics(self):
         """Generate and save plots for all metrics."""
-        if not self.data['time_sec']:
+        if not self.flow_data:
             return
         
-        # Convert to numpy arrays for faster processing
-        time_sec = np.array(self.data['time_sec'])
-        rtt_ms = np.array(self.data['rtt_ms'])
-        cwnd = np.array(self.data['cwnd'])
-        delivery_rate_mbps = np.array(self.data['delivery_rate_mbps'])
-        retrans = np.array(self.data['retrans'])
-        flow_type = np.array(self.data['flow_type'])
-        flow_id = np.array(self.data['flow_id'])
-        
         # Plot RTT
-        self._plot_single_metric(
-            time_sec, rtt_ms, flow_type, flow_id,
-            'RTT over Time', 'RTT (ms)', 'rtt_over_time.png'
-        )
+        self._plot_single_metric('rtt_ms', 'RTT over Time', 'RTT (ms)', 'rtt_over_time.png')
         
         # Plot CWND
-        self._plot_single_metric(
-            time_sec, cwnd, flow_type, flow_id,
-            'Congestion Window over Time', 'CWND (segments)', 'cwnd_over_time.png'
-        )
+        self._plot_single_metric('cwnd', 'Congestion Window over Time', 'CWND (segments)', 'cwnd_over_time.png')
         
         # Plot Delivery Rate
-        self._plot_single_metric(
-            time_sec, delivery_rate_mbps, flow_type, flow_id,
-            'Delivery Rate over Time', 'Delivery Rate (Mbps)', 'delivery_rate_over_time.png',
-            use_log_scale=True
-        )
+        self._plot_single_metric('delivery_rate_mbps', 'Delivery Rate over Time',
+                                'Delivery Rate (Mbps)', 'delivery_rate_over_time.png', use_log_scale=True)
         
         # Plot Retransmits
-        self._plot_single_metric(
-            time_sec, retrans, flow_type, flow_id,
-            'Retransmits over Time', 'Cumulative Retransmits', 'retransmits_over_time.png'
-        )
+        self._plot_single_metric('retrans', 'Retransmits over Time',
+                                'Cumulative Retransmits', 'retransmits_over_time.png')
     
-    def _plot_single_metric(self, time_sec, values, flow_type, flow_id,
-                           title, ylabel, filename, use_log_scale=False):
-        """Plot a single metric."""
+    def _plot_single_metric(self, metric_key: str, title: str, ylabel: str,
+                           filename: str, use_log_scale: bool = False):
+        """Plot a single metric for all flows."""
         fig, ax = plt.subplots(figsize=(14, 7))
         
-        # Plot each flow type
-        for ft, color in self.palette.items():
-            mask = flow_type == ft
-            if not np.any(mask):
+        # Track which flow types have been labeled
+        labeled_types = set()
+        
+        for flow_id, data in self.flow_data.items():
+            flow_type = data['flow_type']
+            color = self.palette.get(flow_type, 'gray')
+            
+            time_sec = np.array(data['time_sec'])
+            values = np.array(data[metric_key])
+            
+            # Filter out invalid values for certain metrics
+            if metric_key in ['rtt_ms', 'cwnd', 'delivery_rate_mbps']:
+                valid_mask = values > 0
+                if not np.any(valid_mask):
+                    continue
+                time_sec = time_sec[valid_mask]
+                values = values[valid_mask]
+            
+            if len(time_sec) == 0:
                 continue
             
-            # Get unique flow IDs for this type
-            unique_flow_ids = np.unique(flow_id[mask])
+            # Add label only for first flow of each type
+            label = flow_type if flow_type not in labeled_types else ""
+            if label:
+                labeled_types.add(flow_type)
             
-            for fid in unique_flow_ids:
-                flow_mask = (flow_type == ft) & (flow_id == fid)
-                
-                # Create a copy of values for this flow and set invalid values to NaN
-                # This prevents matplotlib from drawing horizontal lines across gaps
-                flow_values = np.where(flow_mask, values, np.nan)
-                
-                # Set invalid/zero values to NaN to avoid horizontal lines
-                # RTT should be > 0, CWND should be > 0, delivery_rate can be 0 but skip if all zeros
-                if 'RTT' in title:
-                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
-                elif 'CWND' in title:
-                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
-                elif 'Delivery Rate' in title:
-                    # For delivery rate, set 0 values to NaN (inactive flows)
-                    flow_values = np.where(flow_values <= 0, np.nan, flow_values)
-                # For retransmits, 0 is valid, so don't modify
-                
-                # Skip if no valid data points
-                if np.all(np.isnan(flow_values)):
-                    continue
-                
-                ax.plot(time_sec, flow_values,
-                       color=color, linewidth=0.5, alpha=0.8, label=f"{ft}" if fid == unique_flow_ids[0] else "")
+            ax.plot(time_sec, values, color=color, linewidth=0.5, alpha=0.8, label=label)
         
         ax.set_title(title, fontsize=16)
         ax.set_xlabel('Time (s)', fontsize=12)
         ax.set_ylabel(ylabel, fontsize=12)
         
-        # Create legend with only one entry per flow type
+        # Create legend
         handles, labels = ax.get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        ax.legend(by_label.values(), by_label.keys(), loc='upper right')
+        if handles:
+            ax.legend(handles, labels, loc='upper right')
         
         ax.grid(True, alpha=0.3)
         
-        if use_log_scale:
+        if use_log_scale and len(ax.get_lines()) > 0:
             ax.set_yscale('log')
         
         plt.tight_layout()
         output_path = os.path.join(self.output_dir, filename)
         plt.savefig(output_path, dpi=150)
-        plt.close()
+        plt.close(fig)
 
 
 def high_precision_sleep(duration_sec: float):

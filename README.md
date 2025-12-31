@@ -122,10 +122,15 @@ python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --durat
 - `lost` - 丢包计数
 - `delivery_rate_bps` - 传输速率（比特/秒）
 
-**实时绘图功能**：
-- `--plot` - 启用实时绘图
+**定期绘图功能**：
+- `--plot` - 启用定期绘图（每隔一定样本数保存图表到文件）
 - `--plot-dir` - 指定绘图输出目录（默认：`./plots`）
 - `--plot-interval` - 指定绘图更新间隔（样本数，默认：1000）
+
+> **注意**：由于高频采集（1ms 间隔）时无法同时处理 GUI 事件循环，因此采用文件保存方式。
+> 可使用支持自动刷新的图片查看器实现"实时"效果：
+> - Linux: `feh --reload 1 ./plots/rtt_over_time.png`
+> - 浏览器: 使用自动刷新扩展查看 PNG 文件
 
 生成的图表：
 - RTT over Time
