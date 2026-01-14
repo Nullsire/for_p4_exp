@@ -20,15 +20,7 @@ make
 ./contrl_test
 ```
 
-### 3. 设置端口限速
-
-对 dev_port=189 设置 120Mbps 限速：
-
-```bash
-./tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
-```
-
-### 4. 生成实验脚本
+### 3. 生成实验脚本
 
 ```bash
 python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
@@ -50,10 +42,6 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
    # 采集 + 实时绘图
    python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --duration 500 --output ./exp_logs_I/tcp_metrics.csv --plot --verbose
    ```
-4. **交换机**：实时监控队列
-   ```bash
-   ./tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues
-   ```
 
 ### 6. 数据处理与可视化
 
@@ -62,38 +50,11 @@ python3 ./gen_experiment.py --config I --out-dir ./exp_scripts
 python3 ./visualize_tcp_metrics.py --input ./exp_logs_I/tcp_metrics.csv --output ./exp_logs_I/plots
 ```
 
-### 7. 实验清理
-
-```bash
-./tm_shape_queue.sh reset
-```
-
 ---
 
 ## 🛠️ 脚本说明
 
-### 1. `tm_shape_queue.sh` - 核心限速与监控工具
-
-```bash
-# 限速
-./tm_shape_queue.sh apply --dev-port 189 --max-mbps 120
-
-# 实时监控
-./tm_shape_queue.sh watch --dev-port 189 --interval 1 --all-queues --log-file ./tm.tsv
-
-# 重置所有端口的限速
-./tm_shape_queue.sh reset
-```
-
-### 2. `visualize_tm_queue.py` - TM 队列数据可视化
-
-```bash
-python3 ./visualize_tm_queue.py --tm-log ./tm.tsv --metric all --output tm_metrics.png
-```
-
-**支持的指标**：`queue_usage`, `queue_wm`, `drop_rate`, `rate`, `all`, `detailed`
-
-### 3. `tcp_metrics_collector.py` - TCP 高精度指标采集
+### 1. `tcp_metrics_collector.py` - TCP 高精度指标采集
 
 利用 `ss` 命令以毫秒级精度采集 TCP 连接状态（RTT, CWND, Delivery Rate, Retransmits 等）。
 
@@ -133,7 +94,7 @@ python3 ./tcp_metrics_collector.py --dst-ip 192.168.6.2 --interval-ms 20 --durat
 - Delivery Rate over Time（对数坐标）
 - Retransmits over Time
 
-### 4. `visualize_tcp_metrics.py` - TCP 指标可视化
+### 2. `visualize_tcp_metrics.py` - TCP 指标可视化
 
 针对 TCP 指标 CSV 数据进行优化可视化，支持大规模数据点。兼容以下两种数据源：
 
@@ -159,63 +120,6 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 - Congestion Window over Time (Full Resolution)
 - Delivery Rate over Time (Full Resolution, 对数坐标)
 - Retransmits over Time (Full Resolution)
-
-### 5. `trace_tcp.bt` - BPFtrace TCP 指标采集
-
-使用 BPFtrace 直接从内核采集 TCP 指标，提供另一种高精度数据采集方式。
-
-```bash
-# 运行 bpftrace 采集（需要 root 权限）
-sudo bpftrace trace_tcp.bt > tcp_metrics.csv
-
-# 可视化采集的数据
-python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
-```
-
-**端口范围识别**：
-- Cubic 流：端口 5201-5225
-- Prague 流：端口 5226-5250
-
-**采集指标**：
-- `timestamp_ns` - 纳秒时间戳
-- `local_port` - 本地端口号
-- `remote_port` - 远程端口号
-- `state` - TCP 连接状态
-- `flow_type` - 流类型（cubic, prague）
-- `flow_id` - 唯一流标识符
-- `cwnd` - 拥塞窗口（段数）
-- `rtt_us` - RTT（微秒）
-- `rtt_var_us` - RTT 方差（微秒）
-- `retrans` - 重传计数
-- `lost` - 丢包计数
-- `delivery_rate_bps` - 传输速率（比特/秒）
-
-**与 tcp_metrics_collector.py 的对比**：
-
-| 特性 | tcp_metrics_collector.py | trace_tcp.bt |
-|------|-------------------------|--------------|
-| 采集方式 | `ss` 命令 | BPFtrace 内核探针 |
-| 精度 | 毫秒级 | 纳秒级 |
-| 权限要求 | root/sudo | root/sudo |
-| 实时绘图 | 支持 | 不支持 |
-| CSV 格式 | 标准格式 | 完全兼容 |
-
-### 6. 辅助脚本
-
-- `bfrt_explore.sh` - 探索 BFRT API 所有可用接口
-   ```bash
-   ./bfrt_explore.sh                    # 探索所有 BFRT 接口
-   ./bfrt_explore.sh --filter tm        # 过滤 TM 相关的表
-   ./bfrt_explore.sh --list-tables      # 仅列出所有表
-   ./bfrt_explore.sh --sde /path/sde    # 使用自定义 SDE 路径
-   ```
-
-- `check_queues.sh` - 扫描端口，显示端口计数器、限速配置
-   ```bash
-   ./check_queues.sh                    # 扫描 Pipe 1 (ports 128-255)
-   ./check_queues.sh --pipe 0           # 扫描 Pipe 0 (ports 0-127)
-   ./check_queues.sh --dev-port 189     # 查询特定端口
-   ```
 
 ---
 
@@ -245,10 +149,7 @@ python3 ./visualize_tcp_metrics.py --input tcp_metrics.csv --output ./plots
 1. **`could not initialize bf_rt ... err: 1`**
    - 确保已运行 `./contrl_test`
 
-2. **重启程序后限速失效**
-   - 重新运行 `apply` 命令
-
-3. **重启交换机后两台主机无法ping通**
+2. **重启交换机后两台主机无法ping通**
    - 在交换机上运行 `ifconfig enp4s0f0 up`
    - 在 receiver 端运行 `sudo ip route add 192.168.0.0/16 via 192.168.6.1`
 
